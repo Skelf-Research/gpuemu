@@ -1,0 +1,19 @@
+[package]
+name = "gpuemu-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared types, protocols, and configuration for gpuemu"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+rkyv = { workspace = true }
+bytecheck = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+rand_distr = { workspace = true }
+blake2 = { workspace = true }
+dirs = "5.0"

@@ -1,5 +1,6 @@
 //! gpuemu-daemon: GPU-less validation daemon for deep learning kernels.
 
+mod artifact;
 mod executor;
 mod fuzzer;
 mod server;

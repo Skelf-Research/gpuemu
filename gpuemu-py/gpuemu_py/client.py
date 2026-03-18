@@ -3,16 +3,47 @@
 import base64
 import json
 import os
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 try:
     import pynng
+    HAS_PYNNG = True
 except ImportError:
     pynng = None
+    HAS_PYNNG = False
+
+
+@dataclass
+class ReproductionInfo:
+    """Information needed to reproduce a failure."""
+
+    seed: int
+    shape: List[int]
+    strides: List[int]
+    dtype: str
+    layout: str
+    fuzz_config: Optional[Dict[str, Any]] = None
+    input_snapshot: Optional[bytes] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ReproductionInfo":
+        """Create from dictionary."""
+        return cls(
+            seed=data.get("seed", 0),
+            shape=data.get("shape", []),
+            strides=data.get("strides", []),
+            dtype=data.get("dtype", "Float32"),
+            layout=data.get("layout", "Contiguous"),
+            fuzz_config=data.get("fuzz_config"),
+            input_snapshot=base64.b64decode(data["input_snapshot"])
+            if data.get("input_snapshot")
+            else None,
+        )
 
 
 @dataclass
@@ -27,10 +58,15 @@ class ValidationResult:
     failures: List[Dict[str, Any]]
     timestamp: int
     duration_ms: int
+    repro_info: Optional[ReproductionInfo] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ValidationResult":
         """Create from dictionary."""
+        repro = None
+        if data.get("repro_info"):
+            repro = ReproductionInfo.from_dict(data["repro_info"])
+
         return cls(
             passed=data.get("passed", False),
             seed=data.get("seed", 0),
@@ -40,6 +76,71 @@ class ValidationResult:
             failures=data.get("failures", []),
             timestamp=data.get("timestamp", 0),
             duration_ms=data.get("duration_ms", 0),
+            repro_info=repro,
+        )
+
+
+@dataclass
+class FuzzResults:
+    """Results of a fuzz testing session."""
+
+    seed: int
+    total: int
+    passed: int
+    failed: int
+    failures: List[ValidationResult]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FuzzResults":
+        """Create from dictionary."""
+        return cls(
+            seed=data.get("seed", 0),
+            total=data.get("total", 0),
+            passed=data.get("passed", 0),
+            failed=data.get("failed", 0),
+            failures=[
+                ValidationResult.from_dict(f) for f in data.get("failures", [])
+            ],
+        )
+
+
+@dataclass
+class ReproduceResult:
+    """Result of reproducing a failure."""
+
+    result: ValidationResult
+    inputs: Dict[str, np.ndarray]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any], decode_tensor_fn) -> "ReproduceResult":
+        """Create from dictionary."""
+        inputs = {}
+        for name, tensor_data in data.get("inputs", {}).items():
+            inputs[name] = decode_tensor_fn(tensor_data)
+
+        return cls(
+            result=ValidationResult.from_dict(data.get("result", {})),
+            inputs=inputs,
+        )
+
+
+@dataclass
+class MinimizeResult:
+    """Result of minimizing a failure."""
+
+    original_seed: int
+    minimized_seed: int
+    minimized_shape: List[int]
+    result: ValidationResult
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MinimizeResult":
+        """Create from dictionary."""
+        return cls(
+            original_seed=data.get("original_seed", 0),
+            minimized_seed=data.get("minimized_seed", 0),
+            minimized_shape=data.get("minimized_shape", []),
+            result=ValidationResult.from_dict(data.get("result", {})),
         )
 
 
@@ -69,20 +170,20 @@ class Client:
             socket_path: Path to the daemon socket. Defaults to ~/.gpuemu/gpuemu.sock
             timeout_ms: Timeout for requests in milliseconds.
         """
-        if pynng is None:
-            raise ImportError(
-                "pynng is required for gpuemu-py. Install with: pip install pynng"
-            )
-
         if socket_path is None:
             socket_path = os.path.expanduser("~/.gpuemu/gpuemu.sock")
 
         self.socket_path = socket_path
         self.timeout_ms = timeout_ms
-        self._socket: Optional[pynng.Req0] = None
+        self._socket = None
 
-    def _ensure_connected(self) -> pynng.Req0:
+    def _ensure_connected(self):
         """Ensure we have a connection to the daemon."""
+        if not HAS_PYNNG:
+            raise ImportError(
+                "pynng is required for gpuemu-py. Install with: pip install pynng"
+            )
+
         if self._socket is None:
             self._socket = pynng.Req0()
             self._socket.recv_timeout = self.timeout_ms
@@ -239,6 +340,176 @@ class Client:
 
         if response.get("type") == "Ok":
             return
+        elif response.get("type") == "Error":
+            raise ClientError(response.get("message", "Unknown error"))
+        else:
+            raise ClientError(f"Unexpected response: {response}")
+
+    # =========================================================================
+    # Phase 2: Fuzzing and Reproducibility
+    # =========================================================================
+
+    def fuzz_op(
+        self,
+        op_name: str,
+        seed: Optional[int] = None,
+        iterations: int = 100,
+        fail_fast: bool = False,
+        batch_sizes: Optional[List[int]] = None,
+        seq_lengths: Optional[List[int]] = None,
+        hidden_dims: Optional[List[int]] = None,
+        dtypes: Optional[List[str]] = None,
+        layouts: Optional[List[str]] = None,
+    ) -> FuzzResults:
+        """Fuzz test an op with random inputs.
+
+        Args:
+            op_name: Name of the op (must be registered in gpuemu.toml).
+            seed: Master seed for reproducibility. If None, uses current timestamp.
+            iterations: Number of test cases to generate.
+            fail_fast: Stop on first failure.
+            batch_sizes: List of batch sizes to use.
+            seq_lengths: List of sequence lengths to use.
+            hidden_dims: List of hidden dimensions to use.
+            dtypes: List of dtype strings to use.
+            layouts: List of layout types to use.
+
+        Returns:
+            FuzzResults with pass/fail counts and list of failures.
+
+        Example:
+            >>> results = client.fuzz_op("matmul", seed=12345, iterations=100)
+            >>> print(f"Passed: {results.passed}/{results.total}")
+            >>> for failure in results.failures:
+            ...     print(f"  Seed {failure.seed}: {failure.failures[0]['message']}")
+        """
+        if seed is None:
+            seed = int(time.time_ns()) & 0xFFFFFFFFFFFFFFFF
+
+        # Build fuzz config
+        fuzz_config = {
+            "seed": seed,
+            "shape_options": {
+                "batch_sizes": batch_sizes or [1, 2, 4, 8, 16, 32],
+                "seq_lengths": seq_lengths or [64, 128, 256, 512, 1024],
+                "hidden_dims": hidden_dims or [256, 512, 768, 1024],
+                "edge_cases": [[1], [1, 1], [1, 1, 1]],
+            },
+            "dtypes": dtypes or ["Float32", "Float16"],
+            "layouts": layouts or ["Contiguous", "Strided", "Transposed"],
+        }
+
+        request = {
+            "type": "FuzzOp",
+            "op_name": op_name,
+            "fuzz_config": fuzz_config,
+            "iterations": iterations,
+            "fail_fast": fail_fast,
+        }
+
+        response = self._send_request(request)
+
+        if response.get("type") == "FuzzResults":
+            return FuzzResults.from_dict(response)
+        elif response.get("type") == "Error":
+            raise ClientError(response.get("message", "Unknown error"))
+        else:
+            raise ClientError(f"Unexpected response: {response}")
+
+    def reproduce(self, seed: int) -> ReproduceResult:
+        """Reproduce a failing test case by seed.
+
+        Retrieves the stored failure and regenerates the exact inputs
+        that caused the failure.
+
+        Args:
+            seed: The seed of the failing test case.
+
+        Returns:
+            ReproduceResult with the original result and regenerated inputs.
+
+        Example:
+            >>> repro = client.reproduce(12345)
+            >>> print(f"Op: {repro.result.op_name}")
+            >>> print(f"Input shape: {repro.inputs['input'].shape}")
+        """
+        request = {"type": "Reproduce", "seed": seed}
+        response = self._send_request(request)
+
+        if response.get("type") == "ReproduceResult":
+            return ReproduceResult.from_dict(response, self._decode_tensor)
+        elif response.get("type") == "Error":
+            raise ClientError(response.get("message", "Unknown error"))
+        else:
+            raise ClientError(f"Unexpected response: {response}")
+
+    def minimize(
+        self,
+        seed: int,
+        strategy: str = "binary-search-dims",
+        max_iters: int = 100,
+    ) -> MinimizeResult:
+        """Minimize a failing test case.
+
+        Attempts to find a smaller input that still triggers the failure.
+
+        Args:
+            seed: The seed of the failing test case.
+            strategy: Minimization strategy. One of:
+                - "binary-search-dims": Binary search to reduce dimensions.
+                - "binary-search-values": Binary search to reduce values.
+            max_iters: Maximum iterations for minimization.
+
+        Returns:
+            MinimizeResult with minimized seed, shape, and result.
+
+        Example:
+            >>> result = client.minimize(12345)
+            >>> print(f"Minimized shape: {result.minimized_shape}")
+        """
+        # Convert strategy string to protocol enum
+        strategy_map = {
+            "binary-search-dims": "BinarySearchDims",
+            "binary-search-values": "BinarySearchValues",
+        }
+        proto_strategy = strategy_map.get(strategy, "BinarySearchDims")
+
+        request = {
+            "type": "Minimize",
+            "seed": seed,
+            "strategy": proto_strategy,
+            "max_iters": max_iters,
+        }
+        response = self._send_request(request)
+
+        if response.get("type") == "MinimizeResult":
+            return MinimizeResult.from_dict(response)
+        elif response.get("type") == "Error":
+            raise ClientError(response.get("message", "Unknown error"))
+        else:
+            raise ClientError(f"Unexpected response: {response}")
+
+    def list_failures(self, limit: int = 20) -> List[ValidationResult]:
+        """List stored failures.
+
+        Args:
+            limit: Maximum number of failures to return.
+
+        Returns:
+            List of ValidationResult objects for failed tests.
+
+        Example:
+            >>> failures = client.list_failures(limit=10)
+            >>> for f in failures:
+            ...     print(f"Seed {f.seed}: {f.op_name}")
+        """
+        request = {"type": "ListFailures", "limit": limit}
+        response = self._send_request(request)
+
+        if response.get("type") == "Results":
+            return [
+                ValidationResult.from_dict(r) for r in response.get("results", [])
+            ]
         elif response.get("type") == "Error":
             raise ClientError(response.get("message", "Unknown error"))
         else:

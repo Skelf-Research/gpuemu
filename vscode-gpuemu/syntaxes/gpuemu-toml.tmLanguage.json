@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "gpuemu TOML",
+  "scopeName": "source.toml.gpuemu",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#gpuemu-keywords" },
+    { "include": "#tables" },
+    { "include": "#array-tables" },
+    { "include": "#key-value" }
+  ],
+  "repository": {
+    "comments": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.toml"
+    },
+    "gpuemu-keywords": {
+      "patterns": [
+        {
+          "match": "\\b(name|module|reference|source|framework|version)\\b",
+          "name": "keyword.other.gpuemu"
+        },
+        {
+          "match": "\\b(float32|float16|bfloat16|int32|int64)\\b",
+          "name": "constant.language.dtype.gpuemu"
+        },
+        {
+          "match": "\\b(no_nan|no_inf|non_negative|shape_preserved)\\b",
+          "name": "variable.language.invariant.gpuemu"
+        },
+        {
+          "match": "\\b(max_registers|max_spills|max_local_memory|required_patterns|forbidden_patterns)\\b",
+          "name": "variable.language.artifact.gpuemu"
+        }
+      ]
+    },
+    "tables": {
+      "match": "^\\s*\\[(project|validation|ci|policies|ops|kernels)(\\.[a-z_]+)?\\]",
+      "name": "entity.name.section.toml"
+    },
+    "array-tables": {
+      "match": "^\\s*\\[\\[(ops|kernels)\\]\\]",
+      "name": "entity.name.section.array.toml"
+    },
+    "key-value": {
+      "patterns": [
+        {
+          "match": "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*=",
+          "captures": {
+            "1": { "name": "variable.other.key.toml" }
+          }
+        },
+        {
+          "match": "\"[^\"]*\"",
+          "name": "string.quoted.double.toml"
+        },
+        {
+          "match": "\\b(true|false)\\b",
+          "name": "constant.language.boolean.toml"
+        },
+        {
+          "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b",
+          "name": "constant.numeric.toml"
+        }
+      ]
+    }
+  }
+}

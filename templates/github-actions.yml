@@ -1,0 +1,88 @@
+# gpuemu validation workflow
+name: GPU Validation
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install gpuemu
+      run: |
+        curl -fsSL https://gpuemu.dev/install.sh | sh
+        echo "$HOME/.gpuemu/bin" >> $GITHUB_PATH
+
+    - name: Install Python dependencies
+      run: |
+        pip install gpuemu-py
+        pip install -r requirements.txt || true
+
+    - name: Start gpuemu daemon
+      run: |
+        gpuemu daemon start --background
+        sleep 2
+
+    - name: Run quick validation
+      run: gpuemu ci --quick --format junit --output results.xml
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: results.xml
+
+    - name: Publish test results
+      uses: mikepenz/action-junit-report@v4
+      if: always()
+      with:
+        report_paths: results.xml
+
+  validate-thorough:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install gpuemu
+      run: |
+        curl -fsSL https://gpuemu.dev/install.sh | sh
+        echo "$HOME/.gpuemu/bin" >> $GITHUB_PATH
+
+    - name: Install Python dependencies
+      run: |
+        pip install gpuemu-py
+        pip install -r requirements.txt || true
+
+    - name: Start gpuemu daemon
+      run: |
+        gpuemu daemon start --background
+        sleep 2
+
+    - name: Run thorough validation
+      run: gpuemu ci --format junit --output results.xml
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: thorough-results
+        path: results.xml

@@ -8,9 +8,9 @@ Each adapter is lazily imported to avoid import errors when the framework
 is not installed.
 
 Example:
-    >>> from gpuemu_py.frameworks.pytorch import validate_pytorch, check_autograd
-    >>> from gpuemu_py.frameworks.jax import validate_jax, check_vmap_compatible
-    >>> from gpuemu_py.frameworks.tensorflow import validate_tensorflow
+    >>> from gpuemu_py.frameworks.pytorch import validate_pytorch, check_autograd, fuzz_pytorch_op
+    >>> from gpuemu_py.frameworks.jax import validate_jax, check_vmap_compatible, fuzz_jax_op
+    >>> from gpuemu_py.frameworks.tensorflow import validate_tensorflow, fuzz_tensorflow_op
 """
 
 from gpuemu_py.frameworks.base import FrameworkAdapter
@@ -22,7 +22,7 @@ def get_pytorch_adapter():
     """Get PyTorch adapter and utilities.
 
     Returns:
-        Tuple of (PyTorchAdapter, validate_pytorch, check_autograd)
+        Tuple of (PyTorchAdapter, validate_pytorch, check_autograd, fuzz_pytorch_op)
 
     Raises:
         ImportError: If PyTorch is not installed.
@@ -30,17 +30,18 @@ def get_pytorch_adapter():
     from gpuemu_py.frameworks.pytorch import (
         PyTorchAdapter,
         check_autograd,
+        fuzz_pytorch_op,
         validate_pytorch,
     )
 
-    return PyTorchAdapter, validate_pytorch, check_autograd
+    return PyTorchAdapter, validate_pytorch, check_autograd, fuzz_pytorch_op
 
 
 def get_jax_adapter():
     """Get JAX adapter and utilities.
 
     Returns:
-        Tuple of (JAXAdapter, validate_jax, check_vmap_compatible, check_jit_safe)
+        Tuple of (JAXAdapter, validate_jax, check_vmap_compatible, check_jit_safe, fuzz_jax_op)
 
     Raises:
         ImportError: If JAX is not installed.
@@ -49,17 +50,18 @@ def get_jax_adapter():
         JAXAdapter,
         check_jit_safe,
         check_vmap_compatible,
+        fuzz_jax_op,
         validate_jax,
     )
 
-    return JAXAdapter, validate_jax, check_vmap_compatible, check_jit_safe
+    return JAXAdapter, validate_jax, check_vmap_compatible, check_jit_safe, fuzz_jax_op
 
 
 def get_tensorflow_adapter():
     """Get TensorFlow adapter and utilities.
 
     Returns:
-        Tuple of (TensorFlowAdapter, validate_tensorflow, check_keras_layer)
+        Tuple of (TensorFlowAdapter, validate_tensorflow, check_keras_layer, fuzz_tensorflow_op)
 
     Raises:
         ImportError: If TensorFlow is not installed.
@@ -67,7 +69,8 @@ def get_tensorflow_adapter():
     from gpuemu_py.frameworks.tensorflow import (
         TensorFlowAdapter,
         check_keras_layer,
+        fuzz_tensorflow_op,
         validate_tensorflow,
     )
 
-    return TensorFlowAdapter, validate_tensorflow, check_keras_layer
+    return TensorFlowAdapter, validate_tensorflow, check_keras_layer, fuzz_tensorflow_op

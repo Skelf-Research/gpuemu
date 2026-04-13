@@ -184,11 +184,27 @@ impl Default for ValidationConfig {
 impl ValidationConfig {
     /// Get tolerance for a specific dtype.
     pub fn get_tolerance(&self, dtype: &str) -> f64 {
-        self.tolerances
-            .get(dtype)
-            .copied()
-            .unwrap_or(1e-5)
+        self.tolerances.get(dtype).copied().unwrap_or(1e-5)
     }
+}
+
+/// How the op under test is executed during fuzzing/CI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    /// Client generates inputs, runs the op itself, and submits the output
+    /// to the daemon for comparison against the reference. The daemon never
+    /// invokes the op — it only computes the reference and validates.
+    #[default]
+    ClientSide,
+    /// Daemon generates test cases and returns them to the client (via
+    /// GetTestCase/GetTestBatch requests). The client runs the op and
+    /// submits each output. The daemon orchestrates iteration and fail-fast.
+    DaemonOrchestrated,
+    /// Daemon spawns both the reference script and an op script, feeding
+    /// the same inputs to both. Requires the op script to be runnable
+    /// from the daemon machine (e.g. has GPU access).
+    ScriptBased,
 }
 
 /// Op registration.
@@ -201,6 +217,17 @@ pub struct OpConfig {
     pub module: Option<String>,
     /// Path to reference implementation script.
     pub reference: String,
+    /// Path to op implementation script (used only in ScriptBased mode).
+    /// Receives the same JSON+base64 input as the reference script,
+    /// and must produce the same JSON+base64 output format.
+    #[serde(default)]
+    pub op_script: Option<String>,
+    /// Input names used by the reference implementation during fuzzing/repro.
+    #[serde(default)]
+    pub input_names: Vec<String>,
+    /// How this op is executed during fuzzing/CI runs.
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
     /// Frameworks this op supports.
     #[serde(default)]
     pub frameworks: Vec<String>,

@@ -6,16 +6,18 @@ mod report;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use nng::options::Options;
 use gpuemu_common::config::GpuemuConfig;
-use gpuemu_common::protocol::{deserialize_response, serialize_request, MinimizeStrategy, Request, Response};
-use gpuemu_common::types::{DType, FuzzConfig, LayoutType, ShapeOptions};
+use gpuemu_common::protocol::{
+    deserialize_response, serialize_request, MinimizeStrategy, Request, Response,
+};
+use gpuemu_common::types::{parse_dtypes, FuzzConfig, LayoutType, ShapeOptions};
 use gpuemu_common::{default_socket_path, ensure_gpuemu_dir};
+use nng::options::Options;
 use nng::{Protocol, Socket};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Parser)]
@@ -86,7 +88,6 @@ enum Commands {
     // =========================================================================
     // Phase 2: Fuzzing and Reproducibility
     // =========================================================================
-
     /// Fuzz test ops with random inputs
     Fuzz {
         /// Op name to fuzz (or omit for all ops)
@@ -140,7 +141,6 @@ enum Commands {
     // =========================================================================
     // Phase 3: Artifact Inspection
     // =========================================================================
-
     /// Lint kernel artifacts against policy rules
     Lint {
         /// Kernel name to lint (or omit for auto-detect from PTX)
@@ -187,7 +187,6 @@ enum Commands {
     // =========================================================================
     // Phase 4: CI Integration
     // =========================================================================
-
     /// Run CI validation suite (combines fuzz, lint, diff)
     Ci {
         /// Run quick validation only (fewer dtypes, smaller shapes)
@@ -237,7 +236,6 @@ enum Commands {
     // =========================================================================
     // Phase 6: Developer UX
     // =========================================================================
-
     /// Interactive debugging mode
     Debug {
         /// Specific seed to investigate
@@ -305,35 +303,60 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Daemon { action } => handle_daemon(action),
-        Commands::Init { name, framework, with_examples, ci, target_dir } => {
-            handle_init(name, framework, with_examples, ci, target_dir)
-        }
-        Commands::Test { quick, thorough, seed } => handle_test(quick, thorough, seed),
+        Commands::Init {
+            name,
+            framework,
+            with_examples,
+            ci,
+            target_dir,
+        } => handle_init(name, framework, with_examples, ci, target_dir),
+        Commands::Test {
+            quick,
+            thorough,
+            seed,
+        } => handle_test(quick, thorough, seed),
         Commands::Status => handle_status(),
         Commands::Version => handle_version(),
-        Commands::Fuzz { op, iterations, seed, fail_fast } => {
-            handle_fuzz(op, iterations, seed, fail_fast)
-        }
+        Commands::Fuzz {
+            op,
+            iterations,
+            seed,
+            fail_fast,
+        } => handle_fuzz(op, iterations, seed, fail_fast),
         Commands::Reproduce { seed, verbose } => handle_reproduce(seed, verbose),
-        Commands::Minimize { seed, strategy, max_iters } => {
-            handle_minimize(seed, strategy, max_iters)
-        }
+        Commands::Minimize {
+            seed,
+            strategy,
+            max_iters,
+        } => handle_minimize(seed, strategy, max_iters),
         Commands::Failures { limit } => handle_failures(limit),
-        Commands::Lint { kernel, ptx, format } => handle_lint(kernel, ptx, format),
+        Commands::Lint {
+            kernel,
+            ptx,
+            format,
+        } => handle_lint(kernel, ptx, format),
         Commands::Baseline { tag } => handle_baseline(tag),
-        Commands::Diff { baseline, fail_on_regression, format } => {
-            handle_diff(baseline, fail_on_regression, format)
-        }
+        Commands::Diff {
+            baseline,
+            fail_on_regression,
+            format,
+        } => handle_diff(baseline, fail_on_regression, format),
         Commands::Artifacts { kernel } => handle_artifacts(kernel),
-        Commands::Ci { quick, baseline, parallel, format, output } => {
-            handle_ci(quick, baseline, parallel, format, output)
-        }
-        Commands::Report { format, output, since_hours, include_lint, include_artifacts } => {
-            handle_report(format, output, since_hours, include_lint, include_artifacts)
-        }
-        Commands::Debug { seed, repl, op } => {
-            handle_debug(seed, repl, op)
-        }
+        Commands::Ci {
+            quick,
+            baseline,
+            parallel,
+            format,
+            output,
+        } => handle_ci(quick, baseline, parallel, format, output),
+        Commands::Report {
+            format,
+            output,
+            since_hours,
+            include_lint,
+            include_artifacts,
+        } => handle_report(format, output, since_hours, include_lint, include_artifacts),
+        Commands::Debug { seed, repl, op } => handle_debug(seed, repl, op),
     }
 }
 
@@ -466,13 +489,11 @@ fn handle_init(
 }
 
 fn handle_test(quick: bool, thorough: bool, seed: Option<u64>) -> Result<()> {
-    // Check daemon is running
     if !check_daemon_running() {
         println!("Daemon is not running. Start it with: gpuemu daemon start");
         return Ok(());
     }
 
-    // Load config
     let config = GpuemuConfig::find_and_load()?;
 
     let mode = if quick {
@@ -492,18 +513,85 @@ fn handle_test(quick: bool, thorough: bool, seed: Option<u64>) -> Result<()> {
         return Ok(());
     }
 
-    // For MVP, just ping the daemon to show it's working
-    match send_request(Request::Ping) {
-        Ok(Response::Pong { version, uptime_secs }) => {
-            println!("\nDaemon v{} (uptime: {}s)", version, uptime_secs);
-            println!("Validation would run here in full implementation");
+    let iterations = match mode {
+        "quick" => 10,
+        "thorough" => 100,
+        _ => 50,
+    };
+
+    let mut total_passed = 0;
+    let mut total_failed = 0;
+
+    for op in &config.ops {
+        println!("\nValidating op: {}", op.name);
+
+        let fuzz_config = FuzzConfig {
+            seed: seed.unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos() as u64
+            }),
+            shape_options: ShapeOptions::default(),
+            dtypes: parse_dtypes(
+                &op.tolerances
+                    .keys()
+                    .cloned()
+                    .chain(config.validation.dtypes.iter().cloned())
+                    .collect::<Vec<_>>(),
+            ),
+            layouts: vec![LayoutType::Contiguous, LayoutType::Strided],
+        };
+
+        let request = Request::FuzzOp {
+            op_name: op.name.clone(),
+            fuzz_config,
+            iterations,
+            fail_fast: false,
+        };
+
+        match send_request(request) {
+            Ok(Response::FuzzResults {
+                seed: _,
+                total,
+                passed,
+                failed,
+                failures,
+            }) => {
+                println!("  Total: {}, Passed: {}, Failed: {}", total, passed, failed);
+                total_passed += passed;
+                total_failed += failed;
+
+                if !failures.is_empty() {
+                    println!("  Failures:");
+                    for f in failures.iter().take(3) {
+                        let msg = f
+                            .failures
+                            .first()
+                            .map(|f| f.message.as_str())
+                            .unwrap_or("unknown");
+                        println!("    seed={}: {}", f.seed, msg);
+                    }
+                }
+            }
+            Ok(Response::Error { code, message }) => {
+                println!("  Error ({:?}): {}", code, message);
+            }
+            Ok(other) => {
+                println!("  Unexpected response: {:?}", other);
+            }
+            Err(e) => {
+                println!("  Communication error: {}", e);
+            }
         }
-        Ok(other) => {
-            println!("Unexpected response: {:?}", other);
-        }
-        Err(e) => {
-            error!("Failed to communicate with daemon: {}", e);
-        }
+    }
+
+    println!(
+        "\nValidation complete: {} passed, {} failed",
+        total_passed, total_failed
+    );
+    if total_failed > 0 {
+        println!("Run 'gpuemu failures' to see stored failures");
     }
 
     Ok(())
@@ -522,7 +610,11 @@ fn handle_status() -> Result<()> {
     print!("Daemon: ");
     if check_daemon_running() {
         match send_request(Request::Ping) {
-            Ok(Response::Pong { version, uptime_secs }) => {
+            Ok(Response::Pong {
+                version,
+                uptime_secs,
+                ..
+            }) => {
                 println!("running (v{}, uptime {}s)", version, uptime_secs);
             }
             _ => {
@@ -587,7 +679,11 @@ fn handle_fuzz(
             .as_nanos() as u64
     });
 
-    println!("Fuzzing {} op(s) with {} iterations each", ops_to_fuzz.len(), iterations);
+    println!(
+        "Fuzzing {} op(s) with {} iterations each",
+        ops_to_fuzz.len(),
+        iterations
+    );
     println!("Master seed: {}", master_seed);
     println!();
 
@@ -597,11 +693,25 @@ fn handle_fuzz(
     for op_name in &ops_to_fuzz {
         println!("Fuzzing op: {}", op_name);
 
+        let op_config = config.ops.iter().find(|op| &op.name == op_name);
+        let dtypes = op_config
+            .map(|op| {
+                parse_dtypes(
+                    &op.tolerances
+                        .keys()
+                        .cloned()
+                        .chain(config.validation.dtypes.iter().cloned())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .unwrap_or_else(|| parse_dtypes(&config.validation.dtypes));
+        let layouts = vec![LayoutType::Contiguous, LayoutType::Strided];
+
         let fuzz_config = FuzzConfig {
             seed: master_seed,
             shape_options: ShapeOptions::default(),
-            dtypes: vec![DType::Float32, DType::Float16],
-            layouts: vec![LayoutType::Contiguous, LayoutType::Strided],
+            dtypes,
+            layouts,
         };
 
         let request = Request::FuzzOp {
@@ -612,7 +722,13 @@ fn handle_fuzz(
         };
 
         match send_request(request) {
-            Ok(Response::FuzzResults { seed: _, total, passed, failed, failures }) => {
+            Ok(Response::FuzzResults {
+                seed: _,
+                total,
+                passed,
+                failed,
+                failures,
+            }) => {
                 println!("  Total: {}, Passed: {}, Failed: {}", total, passed, failed);
                 total_passed += passed;
                 total_failed += failed;
@@ -620,8 +736,15 @@ fn handle_fuzz(
                 if !failures.is_empty() {
                     println!("  Failures:");
                     for (i, f) in failures.iter().take(5).enumerate() {
-                        println!("    [{}] seed={}: {}", i + 1, f.seed,
-                            f.failures.first().map(|f| f.message.as_str()).unwrap_or("unknown"));
+                        println!(
+                            "    [{}] seed={}: {}",
+                            i + 1,
+                            f.seed,
+                            f.failures
+                                .first()
+                                .map(|f| f.message.as_str())
+                                .unwrap_or("unknown")
+                        );
                     }
                     if failures.len() > 5 {
                         println!("    ... and {} more", failures.len() - 5);
@@ -687,8 +810,13 @@ fn handle_reproduce(seed: u64, verbose: bool) -> Result<()> {
             if verbose {
                 println!("\nInputs:");
                 for (name, tensor) in &inputs {
-                    println!("  {}: shape={:?}, dtype={:?}, {} bytes",
-                        name, tensor.shape, tensor.dtype, tensor.data.len());
+                    println!(
+                        "  {}: shape={:?}, dtype={:?}, {} bytes",
+                        name,
+                        tensor.shape,
+                        tensor.dtype,
+                        tensor.data.len()
+                    );
                 }
             }
         }
@@ -729,7 +857,12 @@ fn handle_minimize(seed: u64, strategy: MinimizeStrategyArg, max_iters: usize) -
     };
 
     match send_request(request) {
-        Ok(Response::MinimizeResult { original_seed, minimized_seed, minimized_shape, result }) => {
+        Ok(Response::MinimizeResult {
+            original_seed,
+            minimized_seed,
+            minimized_shape,
+            result,
+        }) => {
             println!();
             println!("Original seed: {}", original_seed);
             println!("Minimized seed: {}", minimized_seed);
@@ -772,22 +905,29 @@ fn handle_failures(limit: usize) -> Result<()> {
     let request = Request::ListFailures { limit };
 
     match send_request(request) {
-        Ok(Response::Results(failures)) => {
+        Ok(Response::Results { results: failures }) => {
             if failures.is_empty() {
                 println!("No failures stored.");
             } else {
-                println!("{:<20} {:<15} {:<10} {}", "SEED", "OP", "PASSED", "FIRST FAILURE");
+                println!(
+                    "{:<20} {:<15} {:<10} {}",
+                    "SEED", "OP", "PASSED", "FIRST FAILURE"
+                );
                 println!("{}", "-".repeat(70));
 
                 for f in &failures {
-                    let first_failure = f.failures.first()
+                    let first_failure = f
+                        .failures
+                        .first()
                         .map(|f| f.message.chars().take(30).collect::<String>())
                         .unwrap_or_else(|| "-".to_string());
-                    println!("{:<20} {:<15} {:<10} {}",
+                    println!(
+                        "{:<20} {:<15} {:<10} {}",
                         f.seed,
                         f.op_name.chars().take(15).collect::<String>(),
                         f.passed,
-                        first_failure);
+                        first_failure
+                    );
                 }
 
                 println!();
@@ -838,7 +978,10 @@ fn handle_lint(kernel: Option<String>, ptx: PathBuf, format: String) -> Result<(
     match send_request(request) {
         Ok(Response::LintResults(results)) => {
             if format == "json" {
-                println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&results).unwrap_or_default()
+                );
             } else {
                 let mut all_passed = true;
                 for result in &results {
@@ -848,8 +991,14 @@ fn handle_lint(kernel: Option<String>, ptx: PathBuf, format: String) -> Result<(
                     println!("[{}] {}", status, result.kernel_name);
                     println!("  Registers: {}", result.metrics.register_count);
                     println!("  Spills: {}", result.metrics.spill_count);
-                    println!("  Local memory: {} bytes", result.metrics.local_memory_bytes);
-                    println!("  Shared memory: {} bytes", result.metrics.shared_memory_bytes);
+                    println!(
+                        "  Local memory: {} bytes",
+                        result.metrics.local_memory_bytes
+                    );
+                    println!(
+                        "  Shared memory: {} bytes",
+                        result.metrics.shared_memory_bytes
+                    );
                     println!("  Instructions: {}", result.metrics.instruction_count);
 
                     if !result.metrics.patterns_found.is_empty() {
@@ -928,25 +1077,36 @@ fn handle_diff(baseline: String, fail_on_regression: bool, format: String) -> Re
     println!("Comparing current artifacts against baseline: {}", baseline);
     println!();
 
-    let request = Request::DiffArtifactBaseline { tag: baseline.clone() };
+    let request = Request::DiffArtifactBaseline {
+        tag: baseline.clone(),
+    };
 
     match send_request(request) {
-        Ok(Response::ArtifactDiffs { baseline_tag, diffs, has_regressions }) => {
+        Ok(Response::ArtifactDiffs {
+            baseline_tag,
+            diffs,
+            has_regressions,
+        }) => {
             if format == "json" {
                 let json_output = serde_json::json!({
                     "baseline_tag": baseline_tag,
                     "has_regressions": has_regressions,
                     "diffs": diffs,
                 });
-                println!("{}", serde_json::to_string_pretty(&json_output).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json_output).unwrap_or_default()
+                );
             } else {
                 if diffs.is_empty() {
                     println!("No artifacts to compare.");
                     return Ok(());
                 }
 
-                println!("{:<30} {:>10} {:>10} {:>12} {:>10} {}",
-                    "KERNEL", "REGS", "SPILLS", "LOCAL_MEM", "INSTRS", "STATUS");
+                println!(
+                    "{:<30} {:>10} {:>10} {:>12} {:>10} {}",
+                    "KERNEL", "REGS", "SPILLS", "LOCAL_MEM", "INSTRS", "STATUS"
+                );
                 println!("{}", "-".repeat(85));
 
                 for diff in &diffs {
@@ -968,13 +1128,15 @@ fn handle_diff(baseline: String, fail_on_regression: bool, format: String) -> Re
                         }
                     };
 
-                    println!("{:<30} {:>10} {:>10} {:>12} {:>10} {}",
+                    println!(
+                        "{:<30} {:>10} {:>10} {:>12} {:>10} {}",
                         diff.kernel_name.chars().take(30).collect::<String>(),
                         format_delta(diff.register_delta),
                         format_delta(diff.spill_delta),
                         format_delta(diff.local_memory_delta),
                         format_delta(diff.instruction_delta),
-                        status);
+                        status
+                    );
                 }
 
                 println!();
@@ -1015,7 +1177,9 @@ fn handle_artifacts(kernel: Option<String>) -> Result<()> {
             println!("Fetching artifact metrics for kernel: {}", name);
             println!();
 
-            let request = Request::GetArtifact { kernel_name: name.clone() };
+            let request = Request::GetArtifact {
+                kernel_name: name.clone(),
+            };
 
             match send_request(request) {
                 Ok(Response::ArtifactMetricsResult(metrics)) => {
@@ -1054,17 +1218,21 @@ fn handle_artifacts(kernel: Option<String>) -> Result<()> {
                         println!("No artifacts stored.");
                         println!("Run 'gpuemu lint --ptx <file>' to analyze and store artifacts.");
                     } else {
-                        println!("{:<30} {:>8} {:>8} {:>12} {:>10}",
-                            "KERNEL", "REGS", "SPILLS", "LOCAL_MEM", "INSTRS");
+                        println!(
+                            "{:<30} {:>8} {:>8} {:>12} {:>10}",
+                            "KERNEL", "REGS", "SPILLS", "LOCAL_MEM", "INSTRS"
+                        );
                         println!("{}", "-".repeat(75));
 
                         for m in &artifacts {
-                            println!("{:<30} {:>8} {:>8} {:>12} {:>10}",
+                            println!(
+                                "{:<30} {:>8} {:>8} {:>12} {:>10}",
                                 m.kernel_name.chars().take(30).collect::<String>(),
                                 m.register_count,
                                 m.spill_count,
                                 m.local_memory_bytes,
-                                m.instruction_count);
+                                m.instruction_count
+                            );
                         }
 
                         println!();
@@ -1105,7 +1273,8 @@ fn handle_ci(
         return Ok(());
     }
 
-    let output_format = report::OutputFormat::from_str(&format).unwrap_or(report::OutputFormat::Text);
+    let output_format =
+        report::OutputFormat::from_str(&format).unwrap_or(report::OutputFormat::Text);
 
     println!("Running CI validation suite...");
     if quick {
@@ -1166,14 +1335,15 @@ fn handle_report(
         return Ok(());
     }
 
-    let output_format = report::OutputFormat::from_str(&format).unwrap_or(report::OutputFormat::Text);
+    let output_format =
+        report::OutputFormat::from_str(&format).unwrap_or(report::OutputFormat::Text);
 
     println!("Generating report...");
     println!();
 
     // Fetch validation results
     let validation_results = match send_request(Request::ListResults { limit: 1000 }) {
-        Ok(Response::Results(results)) => {
+        Ok(Response::Results { results }) => {
             // Filter by time if specified
             if let Some(hours) = since_hours {
                 let cutoff = std::time::SystemTime::now()
@@ -1182,7 +1352,10 @@ fn handle_report(
                     .as_secs()
                     .saturating_sub(hours * 3600);
 
-                results.into_iter().filter(|r| r.timestamp >= cutoff).collect()
+                results
+                    .into_iter()
+                    .filter(|r| r.timestamp >= cutoff)
+                    .collect()
             } else {
                 results
             }
@@ -1201,13 +1374,15 @@ fn handle_report(
     // Fetch artifact diffs if baseline specified
     let artifact_diffs = if let Some(ref tag) = include_artifacts {
         match send_request(Request::DiffArtifactBaseline { tag: tag.clone() }) {
-            Ok(Response::ArtifactDiffs { baseline_tag, diffs, has_regressions }) => {
-                Some(gpuemu_common::types::ArtifactDiffSummary {
-                    baseline_tag,
-                    has_regressions,
-                    diffs,
-                })
-            }
+            Ok(Response::ArtifactDiffs {
+                baseline_tag,
+                diffs,
+                has_regressions,
+            }) => Some(gpuemu_common::types::ArtifactDiffSummary {
+                baseline_tag,
+                has_regressions,
+                diffs,
+            }),
             _ => None,
         }
     } else {
@@ -1273,6 +1448,10 @@ fn check_daemon_running() -> bool {
 /// Send a request to the daemon and return the response.
 fn send_request(request: Request) -> Result<Response> {
     let socket_path = default_socket_path();
+    send_request_to(&socket_path, request)
+}
+
+fn send_request_to(socket_path: &std::path::PathBuf, request: Request) -> Result<Response> {
     let socket_url = format!("ipc://{}", socket_path.display());
 
     let socket = Socket::new(Protocol::Req0).context("Failed to create socket")?;
@@ -1287,7 +1466,9 @@ fn send_request(request: Request) -> Result<Response> {
 
     let bytes = serialize_request(&request).map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
-    socket.send(&bytes).map_err(|(_, e)| anyhow::anyhow!("Send failed: {}", e))?;
+    socket
+        .send(&bytes)
+        .map_err(|(_, e)| anyhow::anyhow!("Send failed: {}", e))?;
 
     let response_bytes = socket.recv().context("Failed to receive response")?;
 
@@ -1303,4 +1484,42 @@ fn start_daemon_background(daemon_path: &PathBuf) -> Result<()> {
         .spawn()
         .context("Failed to spawn daemon")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpuemu_common::protocol::{serialize_response, PROTOCOL_VERSION};
+
+    #[test]
+    fn test_pong_response_parsing() {
+        let response = Response::Pong {
+            version: "0.1.0".to_string(),
+            protocol_version: PROTOCOL_VERSION,
+            uptime_secs: 42,
+        };
+        let bytes = serialize_response(&response).unwrap();
+        let decoded = deserialize_response(&bytes).unwrap();
+        match decoded {
+            Response::Pong {
+                version,
+                protocol_version,
+                uptime_secs,
+                ..
+            } => {
+                assert_eq!(version, "0.1.0");
+                assert_eq!(protocol_version, PROTOCOL_VERSION);
+                assert_eq!(uptime_secs, 42);
+            }
+            _ => panic!("Expected Pong response"),
+        }
+    }
+
+    #[test]
+    fn test_request_serialization_for_ping() {
+        let request = Request::Ping;
+        let bytes = serialize_request(&request).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["type"], "Ping");
+    }
 }

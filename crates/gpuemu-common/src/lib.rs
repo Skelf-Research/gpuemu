@@ -7,12 +7,14 @@ pub mod protocol;
 pub mod rng;
 pub mod types;
 
-pub use config::{GpuemuConfig, OpConfig, ValidationConfig};
+pub use config::{ExecutionMode, GpuemuConfig, OpConfig, ValidationConfig};
+pub use protocol::{
+    ErrorCode, MinimizeStrategy, Request, Response, TestCaseData, PROTOCOL_VERSION,
+};
 pub use rng::SeededRng;
-pub use protocol::{Request, Response, ErrorCode};
 pub use types::{
-    DType, TensorData, ValidationResult, ValidationFailure, FailureKind,
-    FuzzConfig, ShapeOptions, LayoutType, ReproductionInfo,
+    BaselineComparison, DType, FailureKind, FuzzConfig, LayoutType, ReproductionInfo, ShapeOptions,
+    TensorData, ValidationFailure, ValidationResult,
 };
 
 /// Default socket path for the daemon.

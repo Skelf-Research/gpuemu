@@ -122,9 +122,7 @@ class JAXAdapter(FrameworkAdapter):
         float_inputs = [k for k, v in inputs.items() if self.requires_grad(v)]
 
         if argnums is None:
-            argnums = tuple(
-                i for i, k in enumerate(inputs.keys()) if k in float_inputs
-            )
+            argnums = tuple(i for i, k in enumerate(inputs.keys()) if k in float_inputs)
 
         if not argnums:
             return {}
@@ -268,7 +266,9 @@ def check_vmap_compatible(
         return op(**kw)
 
     try:
-        vmapped = jax.vmap(lambda *args: fn(**dict(zip(inputs.keys(), args))), in_axes=batch_axis)
+        vmapped = jax.vmap(
+            lambda *args: fn(**dict(zip(inputs.keys(), args))), in_axes=batch_axis
+        )
         vmap_output = vmapped(*inputs.values())
     except Exception:
         # vmap failed - operation is not compatible
@@ -358,7 +358,9 @@ def check_pmap_compatible(
     if n_devices < 2:
         # Can't properly test pmap with single device, just check if it traces
         try:
-            pmapped = jax.pmap(lambda *args: op(**dict(zip(inputs.keys(), args))), axis_name=axis_name)
+            pmapped = jax.pmap(
+                lambda *args: op(**dict(zip(inputs.keys(), args))), axis_name=axis_name
+            )
             # Reshape inputs to have device dimension
             reshaped = {k: v.reshape((1,) + v.shape) for k, v in inputs.items()}
             _ = pmapped(*reshaped.values())
@@ -368,12 +370,12 @@ def check_pmap_compatible(
 
     # With multiple devices, do a full test
     try:
-        pmapped = jax.pmap(lambda *args: op(**dict(zip(inputs.keys(), args))), axis_name=axis_name)
+        pmapped = jax.pmap(
+            lambda *args: op(**dict(zip(inputs.keys(), args))), axis_name=axis_name
+        )
 
         # Replicate inputs across devices
-        replicated = {
-            k: jax.numpy.stack([v] * n_devices) for k, v in inputs.items()
-        }
+        replicated = {k: jax.numpy.stack([v] * n_devices) for k, v in inputs.items()}
 
         output = pmapped(*replicated.values())
 
@@ -505,3 +507,136 @@ def validate_jax_primitive(
             result["details"].append("vmap compatibility check failed")
 
     return result
+
+
+def fuzz_jax_op(
+    client: "Client",
+    op_name: str,
+    run_op: Callable[..., Any],
+    iterations: int = 100,
+    seed: Optional[int] = None,
+    fail_fast: bool = False,
+    check_vmap: bool = False,
+    check_jit: bool = False,
+    atol: Optional[float] = None,
+    rtol: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Fuzz a JAX op with client-side execution.
+
+    The daemon generates random inputs; the client runs the JAX op
+    and submits the output for validation. Optionally checks vmap
+    and jit compatibility.
+
+    Args:
+        client: gpuemu Client instance.
+        op_name: Name of the op (must be registered in gpuemu.toml).
+        run_op: Callable that takes **inputs (as jax.Arrays) and returns output.
+        iterations: Number of fuzz iterations.
+        seed: Master seed. Auto-generated if None.
+        fail_fast: Stop on first failure.
+        check_vmap: Also test vmap compatibility for each case.
+        check_jit: Also test jit safety for each case.
+        atol: Absolute tolerance override.
+        rtol: Relative tolerance override.
+
+    Returns:
+        Dict with 'total', 'passed', 'failed', 'forward_failures',
+        'vmap_failures', 'jit_failures'.
+
+    Example:
+        >>> client = Client()
+        >>> result = fuzz_jax_op(
+        ...     client,
+        ...     "custom_attention",
+        ...     run_op=lambda q, k, v: jnp.dot(q, k.T),
+        ...     iterations=50,
+        ...     check_jit=True,
+        ... )
+        >>> print(f"Passed: {result['passed']}/{result['total']}")
+    """
+    adapter = JAXAdapter()
+
+    cases = client.get_test_batch(op_name, count=iterations, seed=seed)
+
+    total = 0
+    passed = 0
+    failed = 0
+    forward_failures = []
+    vmap_failures = []
+    jit_failures = []
+
+    for case in cases:
+        total += 1
+
+        # Convert numpy inputs to JAX arrays
+        jax_inputs = {k: adapter.from_numpy(v) for k, v in case["inputs"].items()}
+
+        try:
+            output = run_op(**jax_inputs)
+            np_output = adapter.to_numpy(output)
+
+            kwargs = {}
+            if atol is not None:
+                kwargs["atol"] = atol
+            if rtol is not None:
+                kwargs["rtol"] = rtol
+
+            result = client.submit_output(
+                op_name,
+                case["inputs"],
+                np_output,
+                case["seed"],
+                **kwargs,
+            )
+
+            if result.passed:
+                passed += 1
+            else:
+                failed += 1
+                forward_failures.append(result)
+                if fail_fast:
+                    break
+
+            if check_vmap:
+                try:
+                    vmapped = __import__("jax").vmap(
+                        lambda *args: run_op(**dict(zip(jax_inputs.keys(), args)))
+                    )
+                    _ = vmapped(*jax_inputs.values())
+                except Exception as e:
+                    vmap_failures.append({"seed": case["seed"], "message": str(e)})
+
+            if check_jit:
+                try:
+                    jitted = __import__("jax").jit(run_op)
+                    jitted_output = jitted(**jax_inputs)
+                    jnp = __import__("jax.numpy")
+                    if not jnp.allclose(output, jitted_output, rtol=1e-6, atol=1e-6):
+                        jit_failures.append(
+                            {
+                                "seed": case["seed"],
+                                "message": "JIT output differs from eager output",
+                            }
+                        )
+                except Exception as e:
+                    jit_failures.append({"seed": case["seed"], "message": str(e)})
+
+        except Exception as e:
+            failed += 1
+            forward_failures.append(
+                {
+                    "seed": case["seed"],
+                    "message": f"Op execution failed: {e}",
+                }
+            )
+            if fail_fast:
+                break
+
+    return {
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "forward_failures": forward_failures,
+        "vmap_failures": vmap_failures,
+        "jit_failures": jit_failures,
+    }

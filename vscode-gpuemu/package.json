@@ -90,8 +90,12 @@
     "languages": [
       {
         "id": "gpuemu-toml",
-        "aliases": ["gpuemu Config"],
-        "filenames": ["gpuemu.toml"],
+        "aliases": [
+          "gpuemu Config"
+        ],
+        "filenames": [
+          "gpuemu.toml"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -116,7 +120,10 @@
       {
         "name": "gpuemu",
         "owner": "gpuemu",
-        "fileLocation": ["relative", "${workspaceFolder}"],
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
         "pattern": {
           "regexp": "^\\[FAIL\\]\\s+(\\S+)\\s+\\(seed:\\s*(\\d+)\\):\\s+(.+)$",
           "file": 1,
@@ -127,7 +134,9 @@
     "taskDefinitions": [
       {
         "type": "gpuemu",
-        "required": ["command"],
+        "required": [
+          "command"
+        ],
         "properties": {
           "command": {
             "type": "string",
@@ -182,11 +191,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.115.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^2.22.0",
     "eslint": "^8.55.0",
-    "typescript": "^5.3.0",
-    "@vscode/vsce": "^2.22.0"
+    "typescript": "^5.9.3"
   }
 }

@@ -47,7 +47,11 @@ impl JunitReport {
         xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
 
         let total_time = summary.duration_ms as f64 / 1000.0;
-        let validation_failures = summary.validation_results.iter().filter(|r| !r.passed).count();
+        let validation_failures = summary
+            .validation_results
+            .iter()
+            .filter(|r| !r.passed)
+            .count();
         let lint_failures = summary.lint_results.iter().filter(|r| !r.passed).count();
         let total_failures = validation_failures + lint_failures;
 
@@ -107,7 +111,11 @@ impl JunitReport {
             ));
 
             for diff in &diffs.diffs {
-                let status = if diff.is_regression { "REGRESSION" } else { "OK" };
+                let _status = if diff.is_regression {
+                    "REGRESSION"
+                } else {
+                    "OK"
+                };
                 xml.push_str(&format!(
                     "    <testcase name=\"{}\" classname=\"artifacts\" time=\"0.000\">\n",
                     xml_escape(&diff.kernel_name)
@@ -120,8 +128,14 @@ impl JunitReport {
                     xml.push_str(&format!("Kernel: {}\n", diff.kernel_name));
                     xml.push_str(&format!("Register delta: {:+}\n", diff.register_delta));
                     xml.push_str(&format!("Spill delta: {:+}\n", diff.spill_delta));
-                    xml.push_str(&format!("Local memory delta: {:+}\n", diff.local_memory_delta));
-                    xml.push_str(&format!("Instruction delta: {:+}\n", diff.instruction_delta));
+                    xml.push_str(&format!(
+                        "Local memory delta: {:+}\n",
+                        diff.local_memory_delta
+                    ));
+                    xml.push_str(&format!(
+                        "Instruction delta: {:+}\n",
+                        diff.instruction_delta
+                    ));
                     xml.push_str("      </failure>\n");
                 }
 
@@ -201,9 +215,18 @@ impl JunitReport {
                 // Add metrics
                 xml.push_str(&format!("Registers: {}\n", result.metrics.register_count));
                 xml.push_str(&format!("Spills: {}\n", result.metrics.spill_count));
-                xml.push_str(&format!("Local memory: {} bytes\n", result.metrics.local_memory_bytes));
-                xml.push_str(&format!("Shared memory: {} bytes\n", result.metrics.shared_memory_bytes));
-                xml.push_str(&format!("Instructions: {}\n", result.metrics.instruction_count));
+                xml.push_str(&format!(
+                    "Local memory: {} bytes\n",
+                    result.metrics.local_memory_bytes
+                ));
+                xml.push_str(&format!(
+                    "Shared memory: {} bytes\n",
+                    result.metrics.shared_memory_bytes
+                ));
+                xml.push_str(&format!(
+                    "Instructions: {}\n",
+                    result.metrics.instruction_count
+                ));
 
                 // List all violations
                 if result.violations.len() > 1 {
@@ -258,23 +281,34 @@ impl TextReport {
         let mut text = String::new();
 
         // Header
-        text.push_str("═══════════════════════════════════════════════════════════════════════════════\n");
+        text.push_str(
+            "═══════════════════════════════════════════════════════════════════════════════\n",
+        );
         text.push_str("                              gpuemu CI Report\n");
-        text.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+        text.push_str(
+            "═══════════════════════════════════════════════════════════════════════════════\n\n",
+        );
 
         // Summary
         text.push_str(&format!("Total Tests:  {}\n", summary.total_tests));
         text.push_str(&format!("Passed:       {}\n", summary.passed));
         text.push_str(&format!("Failed:       {}\n", summary.failed));
         text.push_str(&format!("Skipped:      {}\n", summary.skipped));
-        text.push_str(&format!("Duration:     {:.2}s\n", summary.duration_ms as f64 / 1000.0));
+        text.push_str(&format!(
+            "Duration:     {:.2}s\n",
+            summary.duration_ms as f64 / 1000.0
+        ));
         text.push_str("\n");
 
         // Validation results
         if !summary.validation_results.is_empty() {
-            text.push_str("───────────────────────────────────────────────────────────────────────────────\n");
+            text.push_str(
+                "───────────────────────────────────────────────────────────────────────────────\n",
+            );
             text.push_str("Validation Results\n");
-            text.push_str("───────────────────────────────────────────────────────────────────────────────\n");
+            text.push_str(
+                "───────────────────────────────────────────────────────────────────────────────\n",
+            );
 
             for result in &summary.validation_results {
                 let status = if result.passed { "PASS" } else { "FAIL" };
@@ -294,9 +328,13 @@ impl TextReport {
 
         // Lint results
         if !summary.lint_results.is_empty() {
-            text.push_str("───────────────────────────────────────────────────────────────────────────────\n");
+            text.push_str(
+                "───────────────────────────────────────────────────────────────────────────────\n",
+            );
             text.push_str("Lint Results\n");
-            text.push_str("───────────────────────────────────────────────────────────────────────────────\n");
+            text.push_str(
+                "───────────────────────────────────────────────────────────────────────────────\n",
+            );
 
             for result in &summary.lint_results {
                 let status = if result.passed { "PASS" } else { "FAIL" };
@@ -311,7 +349,10 @@ impl TextReport {
 
                 if !result.passed {
                     for violation in &result.violations {
-                        text.push_str(&format!("      {:?}: {}\n", violation.kind, violation.message));
+                        text.push_str(&format!(
+                            "      {:?}: {}\n",
+                            violation.kind, violation.message
+                        ));
                     }
                 }
             }
@@ -320,9 +361,16 @@ impl TextReport {
 
         // Artifact diffs
         if let Some(ref diffs) = summary.artifact_diffs {
-            text.push_str("───────────────────────────────────────────────────────────────────────────────\n");
-            text.push_str(&format!("Artifact Diff (baseline: {})\n", diffs.baseline_tag));
-            text.push_str("───────────────────────────────────────────────────────────────────────────────\n");
+            text.push_str(
+                "───────────────────────────────────────────────────────────────────────────────\n",
+            );
+            text.push_str(&format!(
+                "Artifact Diff (baseline: {})\n",
+                diffs.baseline_tag
+            ));
+            text.push_str(
+                "───────────────────────────────────────────────────────────────────────────────\n",
+            );
 
             text.push_str(&format!(
                 "{:<30} {:>10} {:>10} {:>12} {:>10} {}\n",
@@ -369,13 +417,17 @@ impl TextReport {
         }
 
         // Footer
-        text.push_str("═══════════════════════════════════════════════════════════════════════════════\n");
+        text.push_str(
+            "═══════════════════════════════════════════════════════════════════════════════\n",
+        );
         if summary.has_failures() || summary.has_regressions() {
             text.push_str("Result: FAILED\n");
         } else {
             text.push_str("Result: PASSED\n");
         }
-        text.push_str("═══════════════════════════════════════════════════════════════════════════════\n");
+        text.push_str(
+            "═══════════════════════════════════════════════════════════════════════════════\n",
+        );
 
         text
     }
@@ -384,10 +436,7 @@ impl TextReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpuemu_common::types::{
-        ArtifactDiff, ArtifactDiffSummary, ArtifactMetrics, ArtifactSource,
-        FailureKind, ValidationFailure,
-    };
+    use gpuemu_common::types::{FailureKind, ValidationFailure};
 
     fn make_pass_result() -> ValidationResult {
         ValidationResult {

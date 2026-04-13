@@ -537,11 +537,7 @@ class SeededFuzzer:
         dtype_rng = iter_rng.derive("dtype")
         layout_rng = iter_rng.derive("layout")
 
-        # Generate shape
-        if (
-            self.config.edge_cases
-            and shape_rng.gen_bool(0.1)
-        ):
+        if self.config.edge_cases and shape_rng.gen_bool(0.1):
             shape = tuple(shape_rng.choice(self.config.edge_cases))
         else:
             batch = shape_rng.choice(self.config.batch_sizes)
@@ -549,13 +545,10 @@ class SeededFuzzer:
             hidden = shape_rng.choice(self.config.hidden_dims)
             shape = (batch, seq, hidden)
 
-        # Generate dtype
         dtype = dtype_rng.choice(self.config.dtypes)
 
-        # Generate layout
         layout = layout_rng.choice(self.config.layouts)
 
-        # Compute strides
         if layout == "contiguous":
             strides = _compute_contiguous_strides(shape)
         elif layout == "transposed" and len(shape) >= 2:
@@ -575,6 +568,20 @@ class SeededFuzzer:
             layout=layout,
             strides=strides,
         )
+
+    def iterator(self, max_iterations: int = 1000) -> Iterator["SeededFuzzer.TestCase"]:
+        """Generate test cases up to max_iterations.
+
+        This is a safer alternative to calling next() in an infinite loop.
+
+        Args:
+            max_iterations: Maximum number of test cases to generate.
+
+        Yields:
+            TestCase objects with shape, dtype, layout, and a reproducible seed.
+        """
+        for _ in range(max_iterations):
+            yield self.next()
 
     def reset(self):
         """Reset the fuzzer to iteration 0."""

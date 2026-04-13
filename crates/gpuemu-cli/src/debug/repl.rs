@@ -1,7 +1,9 @@
 //! REPL mode for interactive debugging.
 
 use anyhow::{Context, Result};
-use gpuemu_common::protocol::{deserialize_response, serialize_request, MinimizeStrategy, Request, Response};
+use gpuemu_common::protocol::{
+    deserialize_response, serialize_request, MinimizeStrategy, Request, Response,
+};
 use gpuemu_common::{default_socket_path, types::ValidationResult};
 use nng::{options::Options, Protocol, Socket};
 use std::io::{self, BufRead, Write};
@@ -74,9 +76,7 @@ pub fn start_repl(config: DebugConfig) -> Result<()> {
                 break;
             }
             "list" | "ls" => {
-                let limit = args.first()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(20);
+                let limit = args.first().and_then(|s| s.parse().ok()).unwrap_or(20);
                 list_failures(limit)?;
             }
             "show" | "s" => {
@@ -94,9 +94,7 @@ pub fn start_repl(config: DebugConfig) -> Result<()> {
                 }
             }
             "minimize" | "min" => {
-                let seed = args.first()
-                    .and_then(|s| s.parse().ok())
-                    .or(current_seed);
+                let seed = args.first().and_then(|s| s.parse().ok()).or(current_seed);
 
                 if let Some(seed) = seed {
                     minimize_failure(seed)?;
@@ -105,9 +103,7 @@ pub fn start_repl(config: DebugConfig) -> Result<()> {
                 }
             }
             "reproduce" | "repro" | "r" => {
-                let seed = args.first()
-                    .and_then(|s| s.parse().ok())
-                    .or(current_seed);
+                let seed = args.first().and_then(|s| s.parse().ok()).or(current_seed);
 
                 if let Some(seed) = seed {
                     reproduce_failure(seed)?;
@@ -116,9 +112,7 @@ pub fn start_repl(config: DebugConfig) -> Result<()> {
                 }
             }
             "export" | "e" => {
-                let seed = args.first()
-                    .and_then(|s| s.parse().ok())
-                    .or(current_seed);
+                let seed = args.first().and_then(|s| s.parse().ok()).or(current_seed);
 
                 if let Some(seed) = seed {
                     export_reproducer(seed)?;
@@ -147,7 +141,10 @@ pub fn start_repl(config: DebugConfig) -> Result<()> {
                 stdout.flush()?;
             }
             _ => {
-                println!("Unknown command: {}. Type 'help' for available commands.", cmd);
+                println!(
+                    "Unknown command: {}. Type 'help' for available commands.",
+                    cmd
+                );
             }
         }
 
@@ -179,7 +176,7 @@ fn load_failures() -> Result<Vec<ValidationResult>> {
     let request = Request::ListFailures { limit: 100 };
 
     match send_request(request) {
-        Ok(Response::Results(failures)) => Ok(failures),
+        Ok(Response::Results { results: failures }) => Ok(failures),
         Ok(Response::Error { code, message }) => {
             anyhow::bail!("Error ({:?}): {}", code, message);
         }
@@ -196,7 +193,7 @@ fn list_failures(limit: usize) -> Result<()> {
     let request = Request::ListFailures { limit };
 
     match send_request(request)? {
-        Response::Results(failures) => {
+        Response::Results { results: failures } => {
             if failures.is_empty() {
                 println!("No failures stored.");
             } else {
@@ -204,7 +201,9 @@ fn list_failures(limit: usize) -> Result<()> {
                 println!("{}", "-".repeat(60));
 
                 for f in &failures {
-                    let first_failure = f.failures.first()
+                    let first_failure = f
+                        .failures
+                        .first()
                         .map(|f| f.message.chars().take(30).collect::<String>())
                         .unwrap_or_else(|| "-".to_string());
                     println!("{:<20} {:<15} {}", f.seed, f.op_name, first_failure);
@@ -248,8 +247,12 @@ fn show_failure_details(seed: u64) -> Result<()> {
                 for f in &result.failures {
                     println!("  - {:?}: {}", f.kind, f.message);
                     if let (Some(exp), Some(act)) = (f.expected, f.actual) {
-                        println!("    Expected: {:.6}, Actual: {:.6}, Diff: {:.6e}",
-                            exp, act, (exp - act).abs());
+                        println!(
+                            "    Expected: {:.6}, Actual: {:.6}, Diff: {:.6e}",
+                            exp,
+                            act,
+                            (exp - act).abs()
+                        );
                     }
                     if let Some(idx) = f.index {
                         println!("    At index: {}", idx);
@@ -259,8 +262,13 @@ fn show_failure_details(seed: u64) -> Result<()> {
 
             println!("\nInputs:");
             for (name, tensor) in &inputs {
-                println!("  {}: shape={:?}, dtype={:?}, {} bytes",
-                    name, tensor.shape, tensor.dtype, tensor.data.len());
+                println!(
+                    "  {}: shape={:?}, dtype={:?}, {} bytes",
+                    name,
+                    tensor.shape,
+                    tensor.dtype,
+                    tensor.data.len()
+                );
             }
         }
         Response::Error { code, message } => {
@@ -314,7 +322,12 @@ fn minimize_failure(seed: u64) -> Result<()> {
     };
 
     match send_request(request)? {
-        Response::MinimizeResult { original_seed, minimized_seed, minimized_shape, result } => {
+        Response::MinimizeResult {
+            original_seed,
+            minimized_seed,
+            minimized_shape,
+            result,
+        } => {
             println!();
             println!("Minimization complete!");
             println!("Original seed: {}", original_seed);
@@ -372,7 +385,10 @@ fn generate_reproducer_script(
     let mut script = String::new();
 
     script.push_str("#!/usr/bin/env python3\n");
-    script.push_str(&format!("\"\"\"Reproducer for failure seed {}\n", result.seed));
+    script.push_str(&format!(
+        "\"\"\"Reproducer for failure seed {}\n",
+        result.seed
+    ));
     script.push_str(&format!("Op: {}\n", result.op_name));
     script.push_str("\"\"\"\n\n");
 
@@ -382,15 +398,26 @@ fn generate_reproducer_script(
     // Generate input data
     script.push_str("# Input data\n");
     for (name, tensor) in inputs {
-        let shape_str = tensor.shape.iter()
+        let shape_str = tensor
+            .shape
+            .iter()
             .map(|d| d.to_string())
             .collect::<Vec<_>>()
             .join(", ");
 
-        script.push_str(&format!("# {}: shape=[{}], dtype={:?}\n", name, shape_str, tensor.dtype));
+        script.push_str(&format!(
+            "# {}: shape=[{}], dtype={:?}\n",
+            name, shape_str, tensor.dtype
+        ));
         script.push_str(&format!("{}_data = np.frombuffer(\n", name));
-        script.push_str(&format!("    bytes.fromhex('{}'),\n",
-            tensor.data.iter().map(|b| format!("{:02x}", b)).collect::<String>()));
+        script.push_str(&format!(
+            "    bytes.fromhex('{}'),\n",
+            tensor
+                .data
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        ));
         script.push_str(&format!("    dtype=np.{}\n", tensor.dtype.to_numpy_dtype()));
         script.push_str(&format!(").reshape({})\n", shape_str));
         script.push_str(&format!("{} = torch.from_numpy({}_data)\n\n", name, name));
@@ -409,12 +436,13 @@ fn generate_reproducer_script(
 }
 
 fn inspect_tensor(spec: &str, current_seed: Option<u64>) -> Result<()> {
-    let seed = current_seed.ok_or_else(|| anyhow::anyhow!("No seed selected. Use 'show <seed>' first."))?;
+    let seed = current_seed
+        .ok_or_else(|| anyhow::anyhow!("No seed selected. Use 'show <seed>' first."))?;
 
     // Parse tensor spec like "output[0:10]" or "input"
     let (name, slice) = if let Some(bracket_pos) = spec.find('[') {
         let name = &spec[..bracket_pos];
-        let slice_str = &spec[bracket_pos+1..spec.len()-1];
+        let slice_str = &spec[bracket_pos + 1..spec.len() - 1];
         (name, Some(slice_str))
     } else {
         (spec, None)
@@ -425,18 +453,26 @@ fn inspect_tensor(spec: &str, current_seed: Option<u64>) -> Result<()> {
     match send_request(request)? {
         Response::ReproduceResult { inputs, .. } => {
             if let Some(tensor) = inputs.get(name) {
-                println!("Tensor '{}': shape={:?}, dtype={:?}", name, tensor.shape, tensor.dtype);
+                println!(
+                    "Tensor '{}': shape={:?}, dtype={:?}",
+                    name, tensor.shape, tensor.dtype
+                );
 
                 // Show slice of data
                 let start = 0;
                 let end = std::cmp::min(10, tensor.data.len() / 4);
 
                 if let Some(_slice_str) = slice {
-                    println!("Slice parsing not yet implemented. Showing first {} values:", end);
+                    println!(
+                        "Slice parsing not yet implemented. Showing first {} values:",
+                        end
+                    );
                 }
 
                 // Interpret as float32 for now
-                let floats: Vec<f32> = tensor.data.chunks_exact(4)
+                let floats: Vec<f32> = tensor
+                    .data
+                    .chunks_exact(4)
                     .take(end)
                     .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                     .collect();
@@ -449,8 +485,11 @@ fn inspect_tensor(spec: &str, current_seed: Option<u64>) -> Result<()> {
                     println!("  ... ({} more values)", tensor.data.len() / 4 - end);
                 }
             } else {
-                println!("Tensor '{}' not found. Available: {:?}",
-                    name, inputs.keys().collect::<Vec<_>>());
+                println!(
+                    "Tensor '{}' not found. Available: {:?}",
+                    name,
+                    inputs.keys().collect::<Vec<_>>()
+                );
             }
         }
         Response::Error { code, message } => {
@@ -467,7 +506,11 @@ fn inspect_tensor(spec: &str, current_seed: Option<u64>) -> Result<()> {
 fn check_status() -> Result<()> {
     if check_daemon_running() {
         match send_request(Request::Ping)? {
-            Response::Pong { version, uptime_secs } => {
+            Response::Pong {
+                version,
+                uptime_secs,
+                ..
+            } => {
                 println!("Daemon: running (v{}, uptime {}s)", version, uptime_secs);
             }
             _ => {
@@ -514,7 +557,9 @@ fn send_request(request: Request) -> Result<Response> {
 
     let bytes = serialize_request(&request).map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
-    socket.send(&bytes).map_err(|(_, e)| anyhow::anyhow!("Send failed: {}", e))?;
+    socket
+        .send(&bytes)
+        .map_err(|(_, e)| anyhow::anyhow!("Send failed: {}", e))?;
 
     let response_bytes = socket.recv().context("Failed to receive response")?;
 

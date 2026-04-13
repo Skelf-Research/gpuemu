@@ -10,8 +10,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+PROTOCOL_VERSION = 1
+
 try:
     import pynng
+
     HAS_PYNNG = True
 except ImportError:
     pynng = None
@@ -98,9 +101,7 @@ class FuzzResults:
             total=data.get("total", 0),
             passed=data.get("passed", 0),
             failed=data.get("failed", 0),
-            failures=[
-                ValidationResult.from_dict(f) for f in data.get("failures", [])
-            ],
+            failures=[ValidationResult.from_dict(f) for f in data.get("failures", [])],
         )
 
 
@@ -198,7 +199,28 @@ class Client:
                     "Is the daemon running? Start it with: gpuemu daemon start"
                 )
 
+            self._check_protocol_version()
+
         return self._socket
+
+    def _check_protocol_version(self):
+        """Verify daemon protocol version is compatible (called once on connect)."""
+        try:
+            saved = self._socket
+            self._socket = None
+            ping_resp = self._send_request({"type": "Ping"})
+            self._socket = saved
+            daemon_pv = ping_resp.get("protocol_version", 0)
+            if daemon_pv != PROTOCOL_VERSION:
+                raise ClientError(
+                    f"Protocol version mismatch: client={PROTOCOL_VERSION}, "
+                    f"daemon={daemon_pv}. Please upgrade the "
+                    f"{'client' if daemon_pv > PROTOCOL_VERSION else 'daemon'}."
+                )
+        except ClientError:
+            raise
+        except Exception:
+            pass
 
     def close(self):
         """Close the connection."""
@@ -232,13 +254,24 @@ class Client:
         """Ping the daemon to check if it's alive.
 
         Returns:
-            Dict with 'version' and 'uptime_secs'.
+            Dict with 'version', 'protocol_version', and 'uptime_secs'.
+
+        Raises:
+            ClientError: If the daemon has an incompatible protocol version.
         """
         response = self._send_request({"type": "Ping"})
 
         if response.get("type") == "Pong":
+            daemon_pv = response.get("protocol_version", 0)
+            if daemon_pv != PROTOCOL_VERSION:
+                raise ClientError(
+                    f"Protocol version mismatch: client={PROTOCOL_VERSION}, "
+                    f"daemon={daemon_pv}. Please upgrade the "
+                    f"{'client' if daemon_pv > PROTOCOL_VERSION else 'daemon'}."
+                )
             return {
                 "version": response.get("version", "unknown"),
+                "protocol_version": daemon_pv,
                 "uptime_secs": response.get("uptime_secs", 0),
             }
         elif response.get("type") == "Error":
@@ -321,9 +354,7 @@ class Client:
         response = self._send_request(request)
 
         if response.get("type") == "Results":
-            return [
-                ValidationResult.from_dict(r) for r in response.get("results", [])
-            ]
+            return [ValidationResult.from_dict(r) for r in response.get("results", [])]
         elif response.get("type") == "Error":
             raise ClientError(response.get("message", "Unknown error"))
         else:
@@ -395,7 +426,7 @@ class Client:
                 "hidden_dims": hidden_dims or [256, 512, 768, 1024],
                 "edge_cases": [[1], [1, 1], [1, 1, 1]],
             },
-            "dtypes": dtypes or ["Float32", "Float16"],
+            "dtypes": dtypes or ["float32", "float16"],
             "layouts": layouts or ["Contiguous", "Strided", "Transposed"],
         }
 
@@ -507,9 +538,7 @@ class Client:
         response = self._send_request(request)
 
         if response.get("type") == "Results":
-            return [
-                ValidationResult.from_dict(r) for r in response.get("results", [])
-            ]
+            return [ValidationResult.from_dict(r) for r in response.get("results", [])]
         elif response.get("type") == "Error":
             raise ClientError(response.get("message", "Unknown error"))
         else:
@@ -521,14 +550,324 @@ class Client:
         return {
             "shape": list(arr.shape),
             "strides": list(arr.strides),
-            "dtype": str(arr.dtype),
+            "dtype": Client._numpy_dtype_to_protocol(arr.dtype),
             "data": base64.b64encode(arr.tobytes()).decode("utf-8"),
         }
+
+    @staticmethod
+    def _numpy_dtype_to_protocol(dtype: np.dtype) -> str:
+        """Convert a numpy dtype to the protocol dtype string.
+
+        Maps numpy dtypes to the Rust DType enum variant names
+        (lowercase, matching serde serialization).
+        """
+        mapping = {
+            "float16": "float16",
+            "float32": "float32",
+            "float64": "float64",
+            "int8": "int8",
+            "int16": "int16",
+            "int32": "int32",
+            "int64": "int64",
+            "uint8": "uint8",
+            "uint16": "uint16",
+            "uint32": "uint32",
+            "uint64": "uint64",
+            "bool": "bool",
+        }
+        name = str(dtype)
+        if name in mapping:
+            return mapping[name]
+        if "bfloat16" in name or "bf16" in name:
+            return "bfloat16"
+        return name
+
+    @staticmethod
+    def _protocol_dtype_to_numpy(dtype_str: str) -> np.dtype:
+        """Convert a protocol dtype string back to a numpy dtype.
+
+        Handles bfloat16 by falling back to float16 as proxy,
+        since numpy has no native bfloat16.
+        """
+        mapping = {
+            "float16": np.float16,
+            "bfloat16": np.float16,
+            "float32": np.float32,
+            "float64": np.float64,
+            "int8": np.int8,
+            "int16": np.int16,
+            "int32": np.int32,
+            "int64": np.int64,
+            "uint8": np.uint8,
+            "uint16": np.uint16,
+            "uint32": np.uint32,
+            "uint64": np.uint64,
+            "bool": np.bool_,
+        }
+        return np.dtype(mapping.get(dtype_str, np.float32))
 
     @staticmethod
     def _decode_tensor(data: Dict[str, Any]) -> np.ndarray:
         """Decode a numpy array from transmission format."""
         shape = tuple(data["shape"])
-        dtype = np.dtype(data["dtype"])
+        dtype = Client._protocol_dtype_to_numpy(data.get("dtype", "float32"))
         raw = base64.b64decode(data["data"])
-        return np.frombuffer(raw, dtype=dtype).reshape(shape)
+        return np.frombuffer(raw, dtype=dtype).reshape(shape).copy()
+
+    # =========================================================================
+    # Execution Modes: Client-Side Fuzzing
+    # =========================================================================
+
+    def get_test_case(self, op_name: str, seed: Optional[int] = None) -> Dict[str, Any]:
+        """Get a single test case from the daemon for client-side execution.
+
+        The daemon generates random inputs. The client runs the actual op
+        on GPU and submits the output for validation via submit_output().
+
+        Args:
+            op_name: Name of the op (must be registered in gpuemu.toml).
+            seed: Master seed for reproducibility. Auto-generated if None.
+
+        Returns:
+            Dict with 'seed', 'inputs' (dict of name->ndarray), 'shape', 'dtype', 'layout'.
+        """
+        if seed is None:
+            seed = int(time.time_ns()) & 0xFFFFFFFFFFFFFFFF
+
+        fuzz_config = {
+            "seed": seed,
+            "shape_options": {
+                "batch_sizes": [1, 2, 4, 8],
+                "seq_lengths": [64, 128, 256],
+                "hidden_dims": [256, 512],
+                "edge_cases": [[1], [1, 1]],
+            },
+            "dtypes": ["float32", "float16"],
+            "layouts": ["Contiguous", "Strided"],
+        }
+
+        request = {
+            "type": "GetTestCase",
+            "op_name": op_name,
+            "fuzz_config": fuzz_config,
+        }
+
+        response = self._send_request(request)
+
+        if response.get("type") == "TestCase":
+            inputs = {
+                name: self._decode_tensor(tensor)
+                for name, tensor in response.get("inputs", {}).items()
+            }
+            return {
+                "seed": response.get("seed", 0),
+                "inputs": inputs,
+                "shape": response.get("shape", []),
+                "dtype": response.get("dtype", "float32"),
+                "layout": response.get("layout", "contiguous"),
+            }
+        elif response.get("type") == "Error":
+            raise ClientError(response.get("message", "Unknown error"))
+        else:
+            raise ClientError(f"Unexpected response: {response}")
+
+    def get_test_batch(
+        self, op_name: str, count: int = 10, seed: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Get a batch of test cases from the daemon.
+
+        Args:
+            op_name: Name of the op.
+            count: Number of test cases to generate.
+            seed: Master seed. Auto-generated if None.
+
+        Returns:
+            List of test case dicts (same format as get_test_case).
+        """
+        if seed is None:
+            seed = int(time.time_ns()) & 0xFFFFFFFFFFFFFFFF
+
+        fuzz_config = {
+            "seed": seed,
+            "shape_options": {
+                "batch_sizes": [1, 2, 4, 8],
+                "seq_lengths": [64, 128, 256],
+                "hidden_dims": [256, 512],
+                "edge_cases": [[1], [1, 1]],
+            },
+            "dtypes": ["float32", "float16"],
+            "layouts": ["Contiguous", "Strided"],
+        }
+
+        request = {
+            "type": "GetTestBatch",
+            "op_name": op_name,
+            "fuzz_config": fuzz_config,
+            "count": count,
+        }
+
+        response = self._send_request(request)
+
+        if response.get("type") == "TestBatch":
+            cases = []
+            for case_data in response.get("cases", []):
+                inputs = {
+                    name: self._decode_tensor(tensor)
+                    for name, tensor in case_data.get("inputs", {}).items()
+                }
+                cases.append(
+                    {
+                        "seed": case_data.get("seed", 0),
+                        "inputs": inputs,
+                        "shape": case_data.get("shape", []),
+                        "dtype": case_data.get("dtype", "float32"),
+                        "layout": case_data.get("layout", "contiguous"),
+                    }
+                )
+            return cases
+        elif response.get("type") == "Error":
+            raise ClientError(response.get("message", "Unknown error"))
+        else:
+            raise ClientError(f"Unexpected response: {response}")
+
+    def submit_output(
+        self,
+        op_name: str,
+        inputs: Dict[str, np.ndarray],
+        output: np.ndarray,
+        seed: int,
+        **kwargs,
+    ) -> ValidationResult:
+        """Submit an op output for validation against the reference.
+
+        This is the core method for client-side and daemon-orchestrated
+        execution modes. The client runs the actual GPU op and submits
+        the result here for comparison.
+
+        Args:
+            op_name: Name of the op (must be registered in gpuemu.toml).
+            inputs: Input tensors as numpy arrays.
+            output: Output tensor from the op under test.
+            seed: Seed of the test case (from get_test_case or get_test_batch).
+            **kwargs: Additional kwargs for the reference script.
+
+        Returns:
+            ValidationResult with pass/fail status and details.
+        """
+        encoded_inputs = {
+            name: self._encode_tensor(arr) for name, arr in inputs.items()
+        }
+        encoded_output = self._encode_tensor(output)
+
+        request = {
+            "type": "SubmitOutput",
+            "op_name": op_name,
+            "inputs": encoded_inputs,
+            "output": encoded_output,
+            "seed": seed,
+            "kwargs": {k: str(v) for k, v in kwargs.items()},
+        }
+
+        response = self._send_request(request)
+
+        if response.get("type") == "SubmitResult":
+            return ValidationResult.from_dict(response.get("result", {}))
+        elif response.get("type") == "Error":
+            raise ClientError(response.get("message", "Unknown error"))
+        else:
+            raise ClientError(f"Unexpected response: {response}")
+
+    def fuzz_op_client_side(
+        self,
+        op_name: str,
+        run_op: "Callable[[Dict[str, np.ndarray]], np.ndarray]",
+        iterations: int = 100,
+        seed: Optional[int] = None,
+        fail_fast: bool = False,
+    ) -> FuzzResults:
+        """Fuzz an op using client-side execution (THE RECOMMENDED DROP-IN PATH).
+
+        This method generates random inputs via the daemon, runs the provided
+        ``run_op`` callable on the client (which has GPU access), and validates
+        the output against the reference script. This is how GPU developers
+        should use gpuemu for fuzzing.
+
+        Args:
+            op_name: Name of the op (must be registered in gpuemu.toml).
+            run_op: A callable that takes a dict of input tensors and returns
+                     the output tensor. This is where you call your GPU kernel.
+            iterations: Number of test cases to try.
+            seed: Master seed. Auto-generated if None.
+            fail_fast: Stop on first failure.
+
+        Returns:
+            FuzzResults with pass/fail counts and list of failures.
+
+        Example:
+            >>> client = Client()
+            >>> results = client.fuzz_op_client_side(
+            ...     "my_flash_attention",
+            ...     run_op=lambda inputs: my_flash_attn(inputs["q"], inputs["k"], inputs["v"]),
+            ...     iterations=50,
+            ... )
+            >>> print(f"Passed: {results.passed}/{results.total}")
+        """
+        if seed is None:
+            seed = int(time.time_ns()) & 0xFFFFFFFFFFFFFFFF
+
+        fuzz_config = {
+            "seed": seed,
+            "shape_options": {
+                "batch_sizes": [1, 2, 4, 8, 16, 32],
+                "seq_lengths": [64, 128, 256, 512, 1024],
+                "hidden_dims": [256, 512, 768, 1024],
+                "edge_cases": [[1], [1, 1], [1, 1, 1]],
+            },
+            "dtypes": ["float32", "float16"],
+            "layouts": ["Contiguous", "Strided", "Transposed"],
+        }
+
+        cases = self.get_test_batch(op_name, count=iterations, seed=seed)
+        total = 0
+        passed = 0
+        failed = 0
+        failures = []
+
+        for case in cases:
+            total += 1
+            try:
+                output = run_op(case["inputs"])
+                result = self.submit_output(
+                    op_name, case["inputs"], output, case["seed"]
+                )
+                if result.passed:
+                    passed += 1
+                else:
+                    failed += 1
+                    failures.append(result)
+                    if fail_fast:
+                        break
+            except Exception as e:
+                failed += 1
+                failures.append(
+                    ValidationResult(
+                        passed=False,
+                        seed=case["seed"],
+                        op_name=op_name,
+                        max_diff=float("inf"),
+                        max_rel_diff=float("inf"),
+                        failures=[{"kind": "ExecutionError", "message": str(e)}],
+                        timestamp=int(time.time()),
+                        duration_ms=0,
+                    )
+                )
+                if fail_fast:
+                    break
+
+        return FuzzResults(
+            seed=seed,
+            total=total,
+            passed=passed,
+            failed=failed,
+            failures=failures,
+        )

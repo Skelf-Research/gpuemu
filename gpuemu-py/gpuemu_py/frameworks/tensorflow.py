@@ -121,9 +121,7 @@ class TensorFlowAdapter(FrameworkAdapter):
         grads = tape.gradient(output, variables)
 
         var_names = [k for k, v in inputs.items() if self.requires_grad(v)]
-        return {
-            name: grad for name, grad in zip(var_names, grads) if grad is not None
-        }
+        return {name: grad for name, grad in zip(var_names, grads) if grad is not None}
 
     def is_available(self) -> bool:
         """Check if TensorFlow is installed."""
@@ -297,7 +295,9 @@ def check_keras_layer(
     if rtol is not None:
         validation_kwargs["rtol"] = rtol
 
-    result = client.validate_op(op_name, {"x": np_input}, np_output, **validation_kwargs)
+    result = client.validate_op(
+        op_name, {"x": np_input}, np_output, **validation_kwargs
+    )
     if not result.passed:
         return False
 
@@ -498,8 +498,166 @@ def validate_custom_gradient(
 
     result["max_diff"] = float(max_diff)
     if not result["gradient_ok"]:
-        result["details"].append(
-            f"Gradient mismatch: max diff = {max_diff:.6e}"
-        )
+        result["details"].append(f"Gradient mismatch: max diff = {max_diff:.6e}")
 
     return result
+
+
+def fuzz_tensorflow_op(
+    client: "Client",
+    op_name: str,
+    run_op: Callable[..., Any],
+    iterations: int = 100,
+    seed: Optional[int] = None,
+    fail_fast: bool = False,
+    check_gradient: bool = False,
+    check_xla: bool = False,
+    atol: Optional[float] = None,
+    rtol: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Fuzz a TensorFlow op with client-side execution.
+
+    The daemon generates random inputs; the client runs the TF op
+    and submits the output for validation. Optionally checks gradient
+    correctness and XLA compatibility.
+
+    Args:
+        client: gpuemu Client instance.
+        op_name: Name of the op (must be registered in gpuemu.toml).
+        run_op: Callable that takes **inputs (as tf.Tensors) and returns output.
+        iterations: Number of fuzz iterations.
+        seed: Master seed. Auto-generated if None.
+        fail_fast: Stop on first failure.
+        check_gradient: Also validate gradients via GradientTape.
+        check_xla: Also test XLA compilation compatibility.
+        atol: Absolute tolerance override.
+        rtol: Relative tolerance override.
+
+    Returns:
+        Dict with 'total', 'passed', 'failed', 'forward_failures',
+        'gradient_failures', 'xla_failures'.
+
+    Example:
+        >>> client = Client()
+        >>> result = fuzz_tensorflow_op(
+        ...     client,
+        ...     "custom_matmul",
+        ...     run_op=lambda x, w: tf.matmul(x, w),
+        ...     iterations=50,
+        ...     check_xla=True,
+        ... )
+        >>> print(f"Passed: {result['passed']}/{result['total']}")
+    """
+    import tensorflow as tf
+
+    adapter = TensorFlowAdapter()
+
+    cases = client.get_test_batch(op_name, count=iterations, seed=seed)
+
+    total = 0
+    passed = 0
+    failed = 0
+    forward_failures = []
+    gradient_failures = []
+    xla_failures = []
+
+    for case in cases:
+        total += 1
+
+        # Convert numpy inputs to TF tensors
+        tf_inputs = {k: adapter.from_numpy(v) for k, v in case["inputs"].items()}
+
+        try:
+            if check_gradient:
+                # Run under GradientTape
+                watchable = {k: tf.Variable(v) for k, v in tf_inputs.items()}
+                with tf.GradientTape(persistent=True) as tape:
+                    output = run_op(**watchable)
+                    loss = tf.reduce_sum(output)
+                grads = tape.gradient(loss, list(watchable.values()))
+
+            output = run_op(**tf_inputs)
+            np_output = adapter.to_numpy(output)
+
+            kwargs = {}
+            if atol is not None:
+                kwargs["atol"] = atol
+            if rtol is not None:
+                kwargs["rtol"] = rtol
+
+            result = client.submit_output(
+                op_name,
+                case["inputs"],
+                np_output,
+                case["seed"],
+                **kwargs,
+            )
+
+            if result.passed:
+                passed += 1
+            else:
+                failed += 1
+                forward_failures.append(result)
+                if fail_fast:
+                    break
+
+            # Gradient check
+            if check_gradient and grads is not None:
+                for name, grad in zip(watchable.keys(), grads):
+                    if grad is not None:
+                        grad_result = client.submit_output(
+                            f"{op_name}_grad_{name}",
+                            case["inputs"],
+                            adapter.to_numpy(grad),
+                            case["seed"],
+                            **kwargs,
+                        )
+                        if not grad_result.passed:
+                            gradient_failures.append(
+                                {
+                                    "seed": case["seed"],
+                                    "input": name,
+                                    "message": f"Gradient validation failed for {name}",
+                                }
+                            )
+
+            # XLA check
+            if check_xla:
+                try:
+                    xla_func = tf.function(run_op, jit_compile=True)
+                    xla_output = xla_func(**tf_inputs)
+                    xla_np = adapter.to_numpy(xla_output)
+                    if not np.allclose(np_output, xla_np, rtol=1e-5, atol=1e-5):
+                        xla_failures.append(
+                            {
+                                "seed": case["seed"],
+                                "message": "XLA output differs from eager output",
+                            }
+                        )
+                except Exception as e:
+                    xla_failures.append(
+                        {
+                            "seed": case["seed"],
+                            "message": f"XLA compilation failed: {e}",
+                        }
+                    )
+
+        except Exception as e:
+            failed += 1
+            forward_failures.append(
+                {
+                    "seed": case["seed"],
+                    "message": f"Op execution failed: {e}",
+                }
+            )
+            if fail_fast:
+                break
+
+    return {
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "forward_failures": forward_failures,
+        "gradient_failures": gradient_failures,
+        "xla_failures": xla_failures,
+    }

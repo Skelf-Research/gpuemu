@@ -1,0 +1,23 @@
+[package]
+name = "gpuemu-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI for gpuemu GPU-less validation"
+
+[[bin]]
+name = "gpuemu"
+path = "src/main.rs"
+
+[dependencies]
+gpuemu-common = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+nng = { workspace = true }
+clap = { workspace = true }
+dirs = "5.0"

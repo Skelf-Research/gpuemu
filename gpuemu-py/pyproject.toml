@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpuemu-py"
+version = "0.1.0"
+description = "Python client for gpuemu GPU-less validation"
+readme = "README.md"
+license = {text = "MIT OR Apache-2.0"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["gpu", "validation", "deep-learning", "cuda", "testing"]
+dependencies = [
+    "pynng>=0.8.0",
+    "numpy>=1.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+torch = [
+    "torch>=2.0",
+]
+jax = [
+    "jax>=0.4",
+    "jaxlib>=0.4",
+]
+tensorflow = [
+    "tensorflow>=2.10",
+]
+all = [
+    "gpuemu-py[torch,jax,tensorflow]",
+]
+
+[project.urls]
+Homepage = "https://github.com/example/gpuemu"
+Documentation = "https://gpuemu.dev/docs"
+Repository = "https://github.com/example/gpuemu"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gpuemu_py*"]

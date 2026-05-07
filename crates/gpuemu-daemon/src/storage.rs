@@ -1,7 +1,7 @@
 //! Storage layer using sled embedded database.
 
 use anyhow::{Context, Result};
-use gpuemu_common::types::{FuzzConfig, ValidationResult};
+use gpuemu_common::types::{ArtifactMetrics, FuzzConfig, ValidationResult};
 use rkyv::Deserialize;
 use sled::Db;
 use std::path::Path;
@@ -220,6 +220,116 @@ impl Storage {
             None => Ok(None),
         }
     }
+
+    // =========================================================================
+    // Phase 3: Artifact Storage
+    // =========================================================================
+
+    /// Store artifact metrics for a kernel.
+    ///
+    /// Artifacts are keyed by kernel name (string).
+    pub fn store_artifact(&self, metrics: &ArtifactMetrics) -> Result<()> {
+        let tree = self.db.open_tree("artifacts")?;
+        let key = metrics.kernel_name.as_bytes();
+        // Use larger buffer for artifacts which may contain PTX content
+        let value = rkyv::to_bytes::<_, 65536>(metrics)
+            .map_err(|e| anyhow::anyhow!("Serialization error: {:?}", e))?;
+        tree.insert(key, value.as_slice())?;
+        tree.flush()?;
+        Ok(())
+    }
+
+    /// Get artifact metrics for a kernel.
+    pub fn get_artifact(&self, kernel_name: &str) -> Result<Option<ArtifactMetrics>> {
+        let tree = self.db.open_tree("artifacts")?;
+        let key = kernel_name.as_bytes();
+        match tree.get(key)? {
+            Some(bytes) => {
+                let archived = rkyv::check_archived_root::<ArtifactMetrics>(&bytes)
+                    .map_err(|e| anyhow::anyhow!("Validation error: {:?}", e))?;
+                let metrics: ArtifactMetrics = archived
+                    .deserialize(&mut rkyv::Infallible)
+                    .map_err(|e| anyhow::anyhow!("Deserialization error: {:?}", e))?;
+                Ok(Some(metrics))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// List all stored artifact metrics.
+    pub fn list_artifacts(&self) -> Result<Vec<ArtifactMetrics>> {
+        let tree = self.db.open_tree("artifacts")?;
+        let mut artifacts = Vec::new();
+
+        for item in tree.iter() {
+            let (_, bytes) = item?;
+            let archived = rkyv::check_archived_root::<ArtifactMetrics>(&bytes)
+                .map_err(|e| anyhow::anyhow!("Validation error: {:?}", e))?;
+            let metrics: ArtifactMetrics = archived
+                .deserialize(&mut rkyv::Infallible)
+                .map_err(|e| anyhow::anyhow!("Deserialization error: {:?}", e))?;
+            artifacts.push(metrics);
+        }
+
+        Ok(artifacts)
+    }
+
+    /// Store current artifacts as a baseline.
+    ///
+    /// Copies all current artifact metrics to a baseline tree tagged with the given name.
+    pub fn store_artifact_baseline(&self, tag: &str) -> Result<()> {
+        let artifacts_tree = self.db.open_tree("artifacts")?;
+        let baseline_tree = self.db.open_tree(format!("artifact_baseline:{}", tag))?;
+
+        // Copy all current artifacts to baseline
+        for item in artifacts_tree.iter() {
+            let (key, value) = item?;
+            baseline_tree.insert(key, value)?;
+        }
+
+        // Store baseline metadata with timestamp
+        let meta_tree = self.db.open_tree("artifact_baseline_meta")?;
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        meta_tree.insert(tag, &timestamp.to_be_bytes())?;
+
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Get artifact baseline metrics for a tag.
+    pub fn get_artifact_baseline(&self, tag: &str) -> Result<Vec<ArtifactMetrics>> {
+        let tree = self.db.open_tree(format!("artifact_baseline:{}", tag))?;
+        let mut artifacts = Vec::new();
+
+        for item in tree.iter() {
+            let (_, bytes) = item?;
+            let archived = rkyv::check_archived_root::<ArtifactMetrics>(&bytes)
+                .map_err(|e| anyhow::anyhow!("Validation error: {:?}", e))?;
+            let metrics: ArtifactMetrics = archived
+                .deserialize(&mut rkyv::Infallible)
+                .map_err(|e| anyhow::anyhow!("Deserialization error: {:?}", e))?;
+            artifacts.push(metrics);
+        }
+
+        Ok(artifacts)
+    }
+
+    /// Check if an artifact baseline exists.
+    pub fn has_artifact_baseline(&self, tag: &str) -> Result<bool> {
+        let meta_tree = self.db.open_tree("artifact_baseline_meta")?;
+        Ok(meta_tree.contains_key(tag)?)
+    }
+
+    /// Clear all artifacts (for testing).
+    pub fn clear_artifacts(&self) -> Result<()> {
+        let tree = self.db.open_tree("artifacts")?;
+        tree.clear()?;
+        tree.flush()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -353,5 +463,98 @@ mod tests {
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.seed, 12345);
         assert_eq!(retrieved.shape_options.batch_sizes, vec![1, 2, 4]);
+    }
+
+    #[test]
+    fn test_store_and_retrieve_artifact() {
+        use gpuemu_common::types::ArtifactSource;
+
+        let tmp = TempDir::new().unwrap();
+        let storage = Storage::open(tmp.path().join("test.db")).unwrap();
+
+        let metrics = ArtifactMetrics {
+            kernel_name: "test_kernel".to_string(),
+            register_count: 32,
+            spill_count: 0,
+            local_memory_bytes: 0,
+            shared_memory_bytes: 1024,
+            instruction_count: 100,
+            patterns_found: vec!["add.f32".to_string()],
+            source: ArtifactSource::Ptx,
+            timestamp: 12345,
+            ptx_content: None,
+        };
+
+        storage.store_artifact(&metrics).unwrap();
+
+        let retrieved = storage.get_artifact("test_kernel").unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.kernel_name, "test_kernel");
+        assert_eq!(retrieved.register_count, 32);
+        assert_eq!(retrieved.shared_memory_bytes, 1024);
+    }
+
+    #[test]
+    fn test_list_artifacts() {
+        use gpuemu_common::types::ArtifactSource;
+
+        let tmp = TempDir::new().unwrap();
+        let storage = Storage::open(tmp.path().join("test.db")).unwrap();
+
+        for i in 0..3 {
+            let metrics = ArtifactMetrics {
+                kernel_name: format!("kernel_{}", i),
+                register_count: 32 + i,
+                spill_count: 0,
+                local_memory_bytes: 0,
+                shared_memory_bytes: 0,
+                instruction_count: 100,
+                patterns_found: vec![],
+                source: ArtifactSource::Ptx,
+                timestamp: i as u64,
+                ptx_content: None,
+            };
+            storage.store_artifact(&metrics).unwrap();
+        }
+
+        let artifacts = storage.list_artifacts().unwrap();
+        assert_eq!(artifacts.len(), 3);
+    }
+
+    #[test]
+    fn test_artifact_baseline() {
+        use gpuemu_common::types::ArtifactSource;
+
+        let tmp = TempDir::new().unwrap();
+        let storage = Storage::open(tmp.path().join("test.db")).unwrap();
+
+        // Store an artifact
+        let metrics = ArtifactMetrics {
+            kernel_name: "test_kernel".to_string(),
+            register_count: 32,
+            spill_count: 0,
+            local_memory_bytes: 0,
+            shared_memory_bytes: 0,
+            instruction_count: 100,
+            patterns_found: vec![],
+            source: ArtifactSource::Ptx,
+            timestamp: 0,
+            ptx_content: None,
+        };
+        storage.store_artifact(&metrics).unwrap();
+
+        // Create baseline
+        storage.store_artifact_baseline("v1.0").unwrap();
+
+        // Verify baseline exists
+        assert!(storage.has_artifact_baseline("v1.0").unwrap());
+        assert!(!storage.has_artifact_baseline("v2.0").unwrap());
+
+        // Retrieve baseline
+        let baseline = storage.get_artifact_baseline("v1.0").unwrap();
+        assert_eq!(baseline.len(), 1);
+        assert_eq!(baseline[0].kernel_name, "test_kernel");
+        assert_eq!(baseline[0].register_count, 32);
     }
 }

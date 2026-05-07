@@ -34,6 +34,25 @@ impl DType {
             DType::Float64 | DType::Int64 | DType::UInt64 => 8,
         }
     }
+
+    /// Get the numpy dtype string for this dtype.
+    pub fn to_numpy_dtype(&self) -> &'static str {
+        match self {
+            DType::Float16 => "float16",
+            DType::BFloat16 => "float16", // bfloat16 requires special handling
+            DType::Float32 => "float32",
+            DType::Float64 => "float64",
+            DType::Int8 => "int8",
+            DType::Int16 => "int16",
+            DType::Int32 => "int32",
+            DType::Int64 => "int64",
+            DType::UInt8 => "uint8",
+            DType::UInt16 => "uint16",
+            DType::UInt32 => "uint32",
+            DType::UInt64 => "uint64",
+            DType::Bool => "bool",
+        }
+    }
 }
 
 /// Tensor metadata and data.
@@ -312,6 +331,205 @@ impl ValidationResult {
     pub fn with_repro_info(mut self, repro_info: ReproductionInfo) -> Self {
         self.repro_info = Some(repro_info);
         self
+    }
+}
+
+// =============================================================================
+// Artifact Types (Phase 3)
+// =============================================================================
+
+/// Source of artifact data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
+#[derive(SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub enum ArtifactSource {
+    /// Parsed from PTX text.
+    Ptx,
+    /// Extracted from SASS via cuobjdump.
+    Sass,
+    /// Both PTX and SASS available.
+    Both,
+}
+
+/// Extracted metrics from PTX/SASS artifacts.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct ArtifactMetrics {
+    /// Kernel name this artifact belongs to.
+    pub kernel_name: String,
+    /// Number of registers used.
+    pub register_count: u32,
+    /// Number of spills detected (ld.local/st.local operations).
+    pub spill_count: u32,
+    /// Local memory usage in bytes.
+    pub local_memory_bytes: u32,
+    /// Shared memory usage in bytes.
+    pub shared_memory_bytes: u32,
+    /// Instruction count (approximate).
+    pub instruction_count: u32,
+    /// Instruction patterns/mnemonics found in the artifact.
+    pub patterns_found: Vec<String>,
+    /// Source type of the artifact.
+    pub source: ArtifactSource,
+    /// Timestamp of extraction (Unix epoch seconds).
+    pub timestamp: u64,
+    /// Raw PTX content (optional, for debugging).
+    pub ptx_content: Option<String>,
+}
+
+impl Default for ArtifactMetrics {
+    fn default() -> Self {
+        Self {
+            kernel_name: String::new(),
+            register_count: 0,
+            spill_count: 0,
+            local_memory_bytes: 0,
+            shared_memory_bytes: 0,
+            instruction_count: 0,
+            patterns_found: Vec::new(),
+            source: ArtifactSource::Ptx,
+            timestamp: 0,
+            ptx_content: None,
+        }
+    }
+}
+
+/// Types of lint violations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
+#[derive(SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub enum LintViolationKind {
+    /// Register count exceeds maximum.
+    ExcessiveRegisters,
+    /// Spill count exceeds maximum.
+    ExcessiveSpills,
+    /// Local memory exceeds maximum.
+    ExcessiveLocalMemory,
+    /// Required pattern not found.
+    MissingRequiredPattern,
+    /// Forbidden pattern detected.
+    ForbiddenPatternFound,
+}
+
+/// A single lint violation.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct LintViolation {
+    /// Type of violation.
+    pub kind: LintViolationKind,
+    /// Human-readable message.
+    pub message: String,
+    /// Actual value that violated the rule (if applicable).
+    pub actual: Option<u32>,
+    /// Threshold that was exceeded (if applicable).
+    pub threshold: Option<u32>,
+}
+
+/// Result of linting a kernel's artifacts.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct LintResult {
+    /// Kernel name.
+    pub kernel_name: String,
+    /// Whether lint passed (no violations).
+    pub passed: bool,
+    /// Extracted metrics.
+    pub metrics: ArtifactMetrics,
+    /// List of violations.
+    pub violations: Vec<LintViolation>,
+    /// Timestamp of lint run (Unix epoch seconds).
+    pub timestamp: u64,
+}
+
+/// Difference between two artifact metrics.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct ArtifactDiff {
+    /// Kernel name.
+    pub kernel_name: String,
+    /// Baseline metrics (if available).
+    pub baseline: Option<ArtifactMetrics>,
+    /// Current metrics.
+    pub current: ArtifactMetrics,
+    /// Register count change (current - baseline).
+    pub register_delta: i32,
+    /// Spill count change.
+    pub spill_delta: i32,
+    /// Local memory change.
+    pub local_memory_delta: i32,
+    /// Instruction count change.
+    pub instruction_delta: i32,
+    /// Whether this is a regression (any metric increased).
+    pub is_regression: bool,
+}
+
+// =============================================================================
+// CI Types (Phase 4)
+// =============================================================================
+
+/// Summary of artifact diff results for CI reporting.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct ArtifactDiffSummary {
+    /// Baseline tag that was compared against.
+    pub baseline_tag: String,
+    /// Whether any regressions were detected.
+    pub has_regressions: bool,
+    /// List of diffs for each kernel.
+    pub diffs: Vec<ArtifactDiff>,
+}
+
+/// Summary of a CI run for reporting.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct CiRunSummary {
+    /// Total number of tests run.
+    pub total_tests: usize,
+    /// Number of tests that passed.
+    pub passed: usize,
+    /// Number of tests that failed.
+    pub failed: usize,
+    /// Number of tests that were skipped.
+    pub skipped: usize,
+    /// Total duration of the CI run in milliseconds.
+    pub duration_ms: u64,
+    /// Timestamp of the CI run (Unix epoch seconds).
+    pub timestamp: u64,
+    /// Validation results from fuzz/test runs.
+    pub validation_results: Vec<ValidationResult>,
+    /// Lint results from artifact checks.
+    pub lint_results: Vec<LintResult>,
+    /// Artifact diff results (if baseline comparison was requested).
+    pub artifact_diffs: Option<ArtifactDiffSummary>,
+}
+
+impl CiRunSummary {
+    /// Check if the CI run has any failures.
+    pub fn has_failures(&self) -> bool {
+        self.failed > 0
+    }
+
+    /// Check if the CI run has any regressions.
+    pub fn has_regressions(&self) -> bool {
+        self.artifact_diffs
+            .as_ref()
+            .map(|d| d.has_regressions)
+            .unwrap_or(false)
+    }
+
+    /// Get the exit code for CI (0 = success, 1 = failure).
+    pub fn exit_code(&self) -> i32 {
+        if self.has_failures() || self.has_regressions() {
+            1
+        } else {
+            0
+        }
     }
 }
 

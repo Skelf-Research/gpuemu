@@ -1,6 +1,6 @@
 //! IPC protocol messages for daemon-client communication.
 
-use crate::types::{FuzzConfig, TensorData, ValidationResult};
+use crate::types::{ArtifactDiff, ArtifactMetrics, CiRunSummary, FuzzConfig, LintResult, TensorData, ValidationResult};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -97,6 +97,64 @@ pub enum Request {
         /// Maximum number of failures to return.
         limit: usize,
     },
+
+    // =========================================================================
+    // Phase 3: Artifact Inspection
+    // =========================================================================
+
+    /// Lint kernel artifacts against configured policies.
+    LintKernel {
+        /// Name of the kernel to lint (or None for all).
+        kernel_name: Option<String>,
+        /// PTX content to analyze.
+        ptx_content: String,
+    },
+
+    /// Store artifact metrics for a kernel.
+    StoreArtifact {
+        /// Kernel name.
+        kernel_name: String,
+        /// Artifact metrics to store.
+        metrics: ArtifactMetrics,
+    },
+
+    /// Store current artifacts as a baseline.
+    StoreArtifactBaseline {
+        /// Tag for the baseline.
+        tag: String,
+    },
+
+    /// Compare current artifacts against a baseline.
+    DiffArtifactBaseline {
+        /// Baseline tag to compare against.
+        tag: String,
+    },
+
+    /// Get artifact metrics for a kernel.
+    GetArtifact {
+        /// Kernel name.
+        kernel_name: String,
+    },
+
+    /// List all stored artifact metrics.
+    ListArtifacts,
+
+    // =========================================================================
+    // Phase 4: CI Integration
+    // =========================================================================
+
+    /// Run full CI validation suite.
+    RunCi {
+        /// Run quick validation only (fewer dtypes, smaller shapes).
+        quick: bool,
+        /// Baseline tag to compare artifacts against (optional).
+        baseline: Option<String>,
+        /// Number of parallel jobs (0 = auto from config).
+        parallel_jobs: u32,
+    },
+
+    /// Get the last CI run summary.
+    GetCiSummary,
 }
 
 /// Response messages sent from the daemon to clients.
@@ -165,6 +223,36 @@ pub enum Response {
         /// The minimized validation result.
         result: ValidationResult,
     },
+
+    // =========================================================================
+    // Phase 3: Artifact Inspection
+    // =========================================================================
+
+    /// Lint results for one or more kernels.
+    LintResults(Vec<LintResult>),
+
+    /// Artifact metrics for a single kernel.
+    ArtifactMetricsResult(ArtifactMetrics),
+
+    /// List of artifact metrics.
+    ArtifactList(Vec<ArtifactMetrics>),
+
+    /// Diff results against baseline.
+    ArtifactDiffs {
+        /// Baseline tag used.
+        baseline_tag: String,
+        /// List of diffs for each kernel.
+        diffs: Vec<ArtifactDiff>,
+        /// Overall regression detected.
+        has_regressions: bool,
+    },
+
+    // =========================================================================
+    // Phase 4: CI Integration
+    // =========================================================================
+
+    /// CI run completed.
+    CiRunComplete(CiRunSummary),
 }
 
 /// Error codes for daemon responses.
@@ -183,6 +271,18 @@ pub enum ErrorCode {
     NotFound,
     /// Configuration error.
     ConfigError,
+
+    // Phase 3: Artifact Inspection
+    /// Kernel not found in configuration.
+    KernelNotFound,
+    /// Artifact not found in storage.
+    ArtifactNotFound,
+    /// Baseline not found in storage.
+    BaselineNotFound,
+    /// PTX parse error.
+    PtxParseError,
+    /// cuobjdump not available.
+    CuobjdumpNotAvailable,
 }
 
 /// Serialize a request to bytes using rkyv.

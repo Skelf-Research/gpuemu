@@ -1,0 +1,50 @@
+# gpuemu validation workflow for GitLab CI
+
+stages:
+  - validate
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+
+.validation-base:
+  image: python:3.11-slim
+  cache:
+    paths:
+      - .pip-cache/
+  before_script:
+    - curl -fsSL https://gpuemu.dev/install.sh | sh
+    - export PATH="$HOME/.gpuemu/bin:$PATH"
+    - pip install gpuemu-py
+    - pip install -r requirements.txt || true
+    - gpuemu daemon start --background
+    - sleep 2
+
+validate:quick:
+  extends: .validation-base
+  stage: validate
+  script:
+    - gpuemu ci --quick --format junit --output results.xml
+  artifacts:
+    when: always
+    reports:
+      junit: results.xml
+    paths:
+      - results.xml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH
+
+validate:thorough:
+  extends: .validation-base
+  stage: validate
+  script:
+    - gpuemu ci --format junit --output results.xml
+  artifacts:
+    when: always
+    reports:
+      junit: results.xml
+    paths:
+      - results.xml
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  timeout: 1h

@@ -2,11 +2,13 @@
 
 import itertools
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 
 from gpuemu_py.client import Client, ValidationResult
+from gpuemu_py.rng import SeededRng, generate_seed
 
 
 class ValidationError(Exception):
@@ -220,3 +222,361 @@ def fuzz_layouts(
             strides.insert(0, stride)
             stride *= dim
         yield shape, tuple(strides)
+
+
+# =============================================================================
+# Seeded Fuzzing Functions
+# =============================================================================
+
+
+@dataclass
+class FuzzConfig:
+    """Configuration for fuzz testing.
+
+    Attributes:
+        seed: Master seed for reproducibility.
+        batch_sizes: List of batch sizes to fuzz.
+        seq_lengths: List of sequence lengths to fuzz.
+        hidden_dims: List of hidden dimensions to fuzz.
+        dtypes: List of dtype strings to fuzz.
+        layouts: List of layout types to fuzz.
+        edge_cases: List of edge case shapes to include.
+    """
+
+    seed: int
+    batch_sizes: List[int] = None
+    seq_lengths: List[int] = None
+    hidden_dims: List[int] = None
+    dtypes: List[str] = None
+    layouts: List[str] = None
+    edge_cases: List[List[int]] = None
+
+    def __post_init__(self):
+        if self.batch_sizes is None:
+            self.batch_sizes = [1, 2, 4, 8, 16, 32]
+        if self.seq_lengths is None:
+            self.seq_lengths = [64, 128, 256, 512, 1024]
+        if self.hidden_dims is None:
+            self.hidden_dims = [256, 512, 768, 1024]
+        if self.dtypes is None:
+            self.dtypes = ["float32", "float16"]
+        if self.layouts is None:
+            self.layouts = ["contiguous", "strided", "transposed"]
+        if self.edge_cases is None:
+            self.edge_cases = [[1], [1, 1], [1, 1, 1], [0]]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for protocol."""
+        return {
+            "seed": self.seed,
+            "shape_options": {
+                "batch_sizes": self.batch_sizes,
+                "seq_lengths": self.seq_lengths,
+                "hidden_dims": self.hidden_dims,
+                "edge_cases": self.edge_cases,
+            },
+            "dtypes": self.dtypes,
+            "layouts": self.layouts,
+        }
+
+
+def fuzz_shapes_seeded(
+    seed: int,
+    batch_sizes: Optional[List[int]] = None,
+    seq_lengths: Optional[List[int]] = None,
+    hidden_dims: Optional[List[int]] = None,
+    edge_cases: Optional[List[List[int]]] = None,
+    edge_case_probability: float = 0.1,
+) -> Iterator[Tuple[int, Tuple[int, ...]]]:
+    """Generate random shapes deterministically from a seed.
+
+    Unlike fuzz_shapes which exhaustively yields all combinations,
+    this function generates random shapes that can be reproduced
+    from the seed.
+
+    Args:
+        seed: Master seed for reproducibility.
+        batch_sizes: List of batch sizes. Defaults to [1, 2, 4, 8, 16, 32].
+        seq_lengths: List of sequence lengths. Defaults to [64, 128, 256, 512, 1024].
+        hidden_dims: List of hidden dimensions. Defaults to [256, 512, 768, 1024].
+        edge_cases: List of edge case shapes to include with some probability.
+        edge_case_probability: Probability of generating an edge case (default 0.1).
+
+    Yields:
+        Tuples of (iteration_seed, shape) where iteration_seed can be used
+        to reproduce this specific shape.
+
+    Example:
+        >>> for iter_seed, shape in fuzz_shapes_seeded(12345):
+        ...     x = torch.randn(*shape)
+        ...     # If this fails, record iter_seed for reproduction
+    """
+    if batch_sizes is None:
+        batch_sizes = [1, 2, 4, 8, 16, 32]
+    if seq_lengths is None:
+        seq_lengths = [64, 128, 256, 512, 1024]
+    if hidden_dims is None:
+        hidden_dims = [256, 512, 768, 1024]
+    if edge_cases is None:
+        edge_cases = [[1], [1, 1], [1, 1, 1]]
+
+    rng = SeededRng(seed)
+    iteration = 0
+
+    while True:
+        iter_rng = rng.derive(f"iter_{iteration}")
+        iter_seed = iter_rng.seed
+        iteration += 1
+
+        shape_rng = iter_rng.derive("shape")
+
+        # Maybe use an edge case
+        if edge_cases and shape_rng.gen_bool(edge_case_probability):
+            shape = tuple(shape_rng.choice(edge_cases))
+        else:
+            batch = shape_rng.choice(batch_sizes)
+            seq = shape_rng.choice(seq_lengths)
+            hidden = shape_rng.choice(hidden_dims)
+            shape = (batch, seq, hidden)
+
+        yield iter_seed, shape
+
+
+def fuzz_dtypes_seeded(
+    seed: int,
+    dtypes: Optional[List[str]] = None,
+) -> Iterator[Tuple[int, str]]:
+    """Generate random dtypes deterministically from a seed.
+
+    Args:
+        seed: Master seed for reproducibility.
+        dtypes: List of dtype strings. Defaults to ["float32", "float16"].
+
+    Yields:
+        Tuples of (iteration_seed, dtype).
+
+    Example:
+        >>> for iter_seed, dtype in fuzz_dtypes_seeded(12345):
+        ...     x = torch.randn(2, 3, dtype=getattr(torch, dtype))
+    """
+    if dtypes is None:
+        dtypes = ["float32", "float16"]
+
+    rng = SeededRng(seed)
+    iteration = 0
+
+    while True:
+        iter_rng = rng.derive(f"iter_{iteration}")
+        iter_seed = iter_rng.seed
+        iteration += 1
+
+        dtype = iter_rng.derive("dtype").choice(dtypes)
+        yield iter_seed, dtype
+
+
+def fuzz_layouts_seeded(
+    seed: int,
+    shape: Tuple[int, ...],
+    layouts: Optional[List[str]] = None,
+) -> Iterator[Tuple[int, str, Tuple[int, ...], Tuple[int, ...]]]:
+    """Generate random memory layouts deterministically from a seed.
+
+    Args:
+        seed: Master seed for reproducibility.
+        shape: Base shape of the tensor.
+        layouts: List of layout types. Defaults to ["contiguous", "strided", "transposed"].
+
+    Yields:
+        Tuples of (iteration_seed, layout_type, shape, strides).
+
+    Example:
+        >>> for iter_seed, layout, shape, strides in fuzz_layouts_seeded(12345, (2, 3, 4)):
+        ...     print(f"Layout {layout}: shape={shape}, strides={strides}")
+    """
+    if layouts is None:
+        layouts = ["contiguous", "strided", "transposed"]
+
+    rng = SeededRng(seed)
+    iteration = 0
+
+    while True:
+        iter_rng = rng.derive(f"iter_{iteration}")
+        iter_seed = iter_rng.seed
+        iteration += 1
+
+        layout = iter_rng.derive("layout").choice(layouts)
+
+        if layout == "contiguous":
+            strides = _compute_contiguous_strides(shape)
+            yield iter_seed, layout, shape, strides
+        elif layout == "transposed":
+            if len(shape) >= 2:
+                # Transpose last two dimensions
+                new_shape = list(shape)
+                new_shape[-1], new_shape[-2] = new_shape[-2], new_shape[-1]
+                strides = _compute_contiguous_strides(tuple(new_shape))
+                yield iter_seed, layout, shape, strides
+            else:
+                strides = _compute_contiguous_strides(shape)
+                yield iter_seed, layout, shape, strides
+        elif layout == "strided":
+            # Add gaps by multiplying strides by 2
+            contiguous_strides = _compute_contiguous_strides(shape)
+            strides = tuple(s * 2 for s in contiguous_strides)
+            yield iter_seed, layout, shape, strides
+        else:
+            strides = _compute_contiguous_strides(shape)
+            yield iter_seed, layout, shape, strides
+
+
+def _compute_contiguous_strides(shape: Tuple[int, ...]) -> Tuple[int, ...]:
+    """Compute contiguous (row-major) strides for a shape."""
+    if not shape:
+        return ()
+    strides = []
+    stride = 1
+    for dim in reversed(shape):
+        strides.insert(0, stride)
+        stride *= dim
+    return tuple(strides)
+
+
+def generate_random_tensor(
+    seed: int,
+    shape: Tuple[int, ...],
+    dtype: str = "float32",
+    domain: str = "data",
+) -> np.ndarray:
+    """Generate a random tensor deterministically from a seed.
+
+    Args:
+        seed: Seed for reproducibility.
+        shape: Shape of the tensor.
+        dtype: Data type string ("float32", "float16", "float64", "int32", "int64").
+        domain: Domain string for seed derivation. Allows generating
+                multiple different tensors from the same seed.
+
+    Returns:
+        Random numpy array with the specified shape and dtype.
+
+    Example:
+        >>> t1 = generate_random_tensor(12345, (2, 3), "float32", "input")
+        >>> t2 = generate_random_tensor(12345, (2, 3), "float32", "input")
+        >>> assert np.array_equal(t1, t2)  # Same seed = same tensor
+    """
+    rng = SeededRng(seed).derive(domain)
+
+    np_dtype = np.dtype(dtype)
+
+    if np_dtype in (np.float32, np.float64):
+        # Generate random values in [-10, 10]
+        data = rng.randn(*shape).astype(np_dtype) * 10.0
+    elif np_dtype == np.float16:
+        data = rng.randn(*shape).astype(np.float16) * 10.0
+    elif np_dtype in (np.int32, np.int64):
+        data = rng._rng.integers(-100, 100, size=shape, dtype=np_dtype)
+    else:
+        # For other types, generate zeros
+        data = np.zeros(shape, dtype=np_dtype)
+
+    return data
+
+
+class SeededFuzzer:
+    """Stateful fuzzer for generating reproducible test cases.
+
+    Maintains iteration state for generating sequences of test cases.
+    Each test case has a unique seed that can be used for reproduction.
+
+    Example:
+        >>> config = FuzzConfig(seed=12345)
+        >>> fuzzer = SeededFuzzer(config)
+        >>> for i in range(10):
+        ...     test_case = fuzzer.next()
+        ...     # Test with test_case.shape, test_case.dtype, etc.
+        ...     # On failure, record test_case.seed
+    """
+
+    @dataclass
+    class TestCase:
+        """A single test case from the fuzzer."""
+
+        seed: int
+        shape: Tuple[int, ...]
+        dtype: str
+        layout: str
+        strides: Tuple[int, ...]
+
+        def generate_input(self, name: str = "input") -> np.ndarray:
+            """Generate a deterministic input tensor for this test case."""
+            return generate_random_tensor(
+                self.seed, self.shape, self.dtype, domain=name
+            )
+
+    def __init__(self, config: FuzzConfig):
+        """Create a new fuzzer from configuration.
+
+        Args:
+            config: FuzzConfig with seed and options.
+        """
+        self.config = config
+        self._rng = SeededRng(config.seed)
+        self._iteration = 0
+
+    def next(self) -> "SeededFuzzer.TestCase":
+        """Generate the next test case.
+
+        Returns:
+            A TestCase with shape, dtype, layout, and a reproducible seed.
+        """
+        iter_rng = self._rng.derive(f"iter_{self._iteration}")
+        iter_seed = iter_rng.seed
+        self._iteration += 1
+
+        shape_rng = iter_rng.derive("shape")
+        dtype_rng = iter_rng.derive("dtype")
+        layout_rng = iter_rng.derive("layout")
+
+        # Generate shape
+        if (
+            self.config.edge_cases
+            and shape_rng.gen_bool(0.1)
+        ):
+            shape = tuple(shape_rng.choice(self.config.edge_cases))
+        else:
+            batch = shape_rng.choice(self.config.batch_sizes)
+            seq = shape_rng.choice(self.config.seq_lengths)
+            hidden = shape_rng.choice(self.config.hidden_dims)
+            shape = (batch, seq, hidden)
+
+        # Generate dtype
+        dtype = dtype_rng.choice(self.config.dtypes)
+
+        # Generate layout
+        layout = layout_rng.choice(self.config.layouts)
+
+        # Compute strides
+        if layout == "contiguous":
+            strides = _compute_contiguous_strides(shape)
+        elif layout == "transposed" and len(shape) >= 2:
+            new_shape = list(shape)
+            new_shape[-1], new_shape[-2] = new_shape[-2], new_shape[-1]
+            strides = _compute_contiguous_strides(tuple(new_shape))
+        elif layout == "strided":
+            contiguous = _compute_contiguous_strides(shape)
+            strides = tuple(s * 2 for s in contiguous)
+        else:
+            strides = _compute_contiguous_strides(shape)
+
+        return SeededFuzzer.TestCase(
+            seed=iter_seed,
+            shape=shape,
+            dtype=dtype,
+            layout=layout,
+            strides=strides,
+        )
+
+    def reset(self):
+        """Reset the fuzzer to iteration 0."""
+        self._rng = SeededRng(self.config.seed)
+        self._iteration = 0

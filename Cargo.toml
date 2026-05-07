@@ -50,3 +50,17 @@ clap = { version = "4", features = ["derive"] }
 # Internal crates
 gpuemu-common = { path = "crates/gpuemu-common" }
 gpuemu-daemon = { path = "crates/gpuemu-daemon" }
+
+# Release profile optimizations
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Faster debug builds
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 2

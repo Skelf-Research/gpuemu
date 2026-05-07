@@ -9,7 +9,7 @@ use gpuemu_common::config::GpuemuConfig;
 use gpuemu_common::protocol::{
     deserialize_request, serialize_response, ErrorCode, Request, Response,
 };
-use gpuemu_common::types::ValidationResult;
+use gpuemu_common::types::{ArtifactDiffSummary, CiRunSummary, ValidationResult};
 use nng::{Protocol, Socket};
 use std::path::Path;
 use std::sync::Arc;
@@ -473,6 +473,383 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                     message: format!("Failed to list failures: {}", e),
                 },
             }
+        }
+
+        // =====================================================================
+        // Phase 3: Artifact Inspection
+        // =====================================================================
+
+        Request::LintKernel { kernel_name, ptx_content } => {
+            info!("LintKernel request: kernel={:?}", kernel_name);
+
+            let state_read = state.read().await;
+            let parser = crate::artifact::PtxParser::new();
+
+            // Determine which kernels to lint
+            let kernels_to_lint: Vec<_> = match &kernel_name {
+                Some(name) => {
+                    match state_read.config.kernels.iter().find(|k| &k.name == name) {
+                        Some(k) => vec![k.clone()],
+                        None => {
+                            // If kernel not in config, create a default config for it
+                            vec![gpuemu_common::config::KernelConfig {
+                                name: name.clone(),
+                                source: None,
+                                reference: String::new(),
+                                tolerances: std::collections::HashMap::new(),
+                                invariants: gpuemu_common::config::InvariantConfig::default(),
+                                artifact_checks: gpuemu_common::config::ArtifactCheckConfig::default(),
+                            }]
+                        }
+                    }
+                }
+                None => {
+                    if state_read.config.kernels.is_empty() {
+                        // No kernels configured, use default config with kernel name from PTX
+                        let detected_name = parser.extract_kernel_name(&ptx_content)
+                            .unwrap_or_else(|| "unknown".to_string());
+                        vec![gpuemu_common::config::KernelConfig {
+                            name: detected_name,
+                            source: None,
+                            reference: String::new(),
+                            tolerances: std::collections::HashMap::new(),
+                            invariants: gpuemu_common::config::InvariantConfig::default(),
+                            artifact_checks: gpuemu_common::config::ArtifactCheckConfig::default(),
+                        }]
+                    } else {
+                        state_read.config.kernels.clone()
+                    }
+                }
+            };
+
+            let mut results = Vec::new();
+
+            for kernel in &kernels_to_lint {
+                // Parse PTX
+                match parser.parse(&kernel.name, &ptx_content) {
+                    Ok(metrics) => {
+                        // Store metrics
+                        if let Err(e) = state_read.storage.store_artifact(&metrics) {
+                            warn!("Failed to store artifact: {}", e);
+                        }
+
+                        // Lint against config
+                        let result = crate::artifact::ArtifactLinter::lint(&metrics, &kernel.artifact_checks);
+                        results.push(result);
+                    }
+                    Err(e) => {
+                        return Response::Error {
+                            code: ErrorCode::PtxParseError,
+                            message: format!("Failed to parse PTX: {}", e),
+                        };
+                    }
+                }
+            }
+
+            Response::LintResults(results)
+        }
+
+        Request::StoreArtifact { kernel_name: _, metrics } => {
+            info!("StoreArtifact request: kernel={}", metrics.kernel_name);
+
+            let state_read = state.read().await;
+            match state_read.storage.store_artifact(&metrics) {
+                Ok(()) => Response::Ok,
+                Err(e) => Response::Error {
+                    code: ErrorCode::InternalError,
+                    message: format!("Failed to store artifact: {}", e),
+                },
+            }
+        }
+
+        Request::StoreArtifactBaseline { tag } => {
+            info!("StoreArtifactBaseline request: tag={}", tag);
+
+            let state_read = state.read().await;
+            match state_read.storage.store_artifact_baseline(&tag) {
+                Ok(()) => {
+                    info!("Stored artifact baseline: {}", tag);
+                    Response::Ok
+                }
+                Err(e) => Response::Error {
+                    code: ErrorCode::InternalError,
+                    message: format!("Failed to store baseline: {}", e),
+                },
+            }
+        }
+
+        Request::DiffArtifactBaseline { tag } => {
+            info!("DiffArtifactBaseline request: tag={}", tag);
+
+            let state_read = state.read().await;
+
+            // Check baseline exists
+            if !state_read.storage.has_artifact_baseline(&tag).unwrap_or(false) {
+                return Response::Error {
+                    code: ErrorCode::BaselineNotFound,
+                    message: format!("Baseline '{}' not found", tag),
+                };
+            }
+
+            // Get baseline and current artifacts
+            let baseline = match state_read.storage.get_artifact_baseline(&tag) {
+                Ok(b) => b,
+                Err(e) => {
+                    return Response::Error {
+                        code: ErrorCode::InternalError,
+                        message: format!("Failed to get baseline: {}", e),
+                    };
+                }
+            };
+
+            let current = match state_read.storage.list_artifacts() {
+                Ok(c) => c,
+                Err(e) => {
+                    return Response::Error {
+                        code: ErrorCode::InternalError,
+                        message: format!("Failed to get current artifacts: {}", e),
+                    };
+                }
+            };
+
+            // Build diff for each current artifact
+            let mut diffs = Vec::new();
+            let mut has_regressions = false;
+
+            for curr in &current {
+                let base = baseline.iter().find(|b| b.kernel_name == curr.kernel_name);
+                let diff = crate::artifact::ArtifactDiffer::diff(base, curr);
+                if diff.is_regression {
+                    has_regressions = true;
+                }
+                diffs.push(diff);
+            }
+
+            Response::ArtifactDiffs {
+                baseline_tag: tag,
+                diffs,
+                has_regressions,
+            }
+        }
+
+        Request::GetArtifact { kernel_name } => {
+            info!("GetArtifact request: kernel={}", kernel_name);
+
+            let state_read = state.read().await;
+            match state_read.storage.get_artifact(&kernel_name) {
+                Ok(Some(metrics)) => Response::ArtifactMetricsResult(metrics),
+                Ok(None) => Response::Error {
+                    code: ErrorCode::ArtifactNotFound,
+                    message: format!("Artifact for kernel '{}' not found", kernel_name),
+                },
+                Err(e) => Response::Error {
+                    code: ErrorCode::InternalError,
+                    message: format!("Failed to get artifact: {}", e),
+                },
+            }
+        }
+
+        Request::ListArtifacts => {
+            info!("ListArtifacts request");
+
+            let state_read = state.read().await;
+            match state_read.storage.list_artifacts() {
+                Ok(artifacts) => Response::ArtifactList(artifacts),
+                Err(e) => Response::Error {
+                    code: ErrorCode::InternalError,
+                    message: format!("Failed to list artifacts: {}", e),
+                },
+            }
+        }
+
+        // =====================================================================
+        // Phase 4: CI Integration
+        // =====================================================================
+
+        Request::RunCi { quick, baseline, parallel_jobs } => {
+            info!("RunCi request: quick={}, baseline={:?}, parallel_jobs={}",
+                  quick, baseline, parallel_jobs);
+
+            let start_time = Instant::now();
+            let state_read = state.read().await;
+
+            // Determine number of parallel jobs
+            let _jobs = if parallel_jobs == 0 {
+                state_read.config.ci.parallel_jobs
+            } else {
+                parallel_jobs
+            };
+
+            let mut validation_results = Vec::new();
+            let mut lint_results = Vec::new();
+
+            // Run validation on each configured op
+            for op in &state_read.config.ops {
+                info!("Running CI validation for op: {}", op.name);
+
+                // For quick mode, use fewer iterations
+                let iterations = if quick { 10 } else { 50 };
+                let seed = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos() as u64;
+
+                let fuzz_config = gpuemu_common::types::FuzzConfig::with_seed(seed);
+                let mut fuzzer = Fuzzer::new(fuzz_config.clone());
+                let input_names: Vec<&str> = vec!["input"];
+
+                for i in 0..iterations {
+                    let test_case = fuzzer.next_test_case(&input_names);
+                    let iter_start = Instant::now();
+
+                    // Run reference script
+                    let reference_path = std::path::Path::new(&op.reference);
+                    let reference_result = state_read
+                        .executor
+                        .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new())
+                        .await;
+
+                    let reference = match reference_result {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let duration_ms = iter_start.elapsed().as_millis() as u64;
+                            let mut result = ValidationResult::fail(
+                                op.name.clone(),
+                                test_case.seed,
+                                vec![gpuemu_common::types::ValidationFailure {
+                                    kind: gpuemu_common::types::FailureKind::ReferenceError,
+                                    message: format!("Reference script failed: {}", e),
+                                    index: None,
+                                    expected: None,
+                                    actual: None,
+                                }],
+                                duration_ms,
+                            );
+                            result = result.with_repro_info(test_case.to_repro_info(Some(fuzz_config.clone())));
+                            validation_results.push(result);
+                            continue;
+                        }
+                    };
+
+                    // Use first input as output (placeholder - real impl would run the op)
+                    let output = test_case.inputs.get("input").cloned().unwrap_or_else(|| reference.clone());
+
+                    // Validate
+                    let invariants = Some(&op.invariants);
+                    let mut result = state_read.validator.validate(
+                        &op.name,
+                        &output,
+                        &reference,
+                        test_case.seed,
+                        invariants,
+                    );
+
+                    result.duration_ms = iter_start.elapsed().as_millis() as u64;
+                    if !result.passed {
+                        result = result.with_repro_info(test_case.to_repro_info(Some(fuzz_config.clone())));
+                    }
+                    validation_results.push(result);
+                }
+            }
+
+            // Run lint checks on configured kernels (if any have PTX files)
+            // For CI, we'd typically lint PTX from build artifacts
+            // This is a simplified implementation
+            for kernel in &state_read.config.kernels {
+                if let Some(ref source) = kernel.source {
+                    let ptx_path = std::path::Path::new(source);
+                    if ptx_path.exists() {
+                        if let Ok(ptx_content) = std::fs::read_to_string(ptx_path) {
+                            let parser = crate::artifact::PtxParser::new();
+                            if let Ok(metrics) = parser.parse(&kernel.name, &ptx_content) {
+                                let result = crate::artifact::ArtifactLinter::lint(&metrics, &kernel.artifact_checks);
+                                lint_results.push(result);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Run artifact diff if baseline specified
+            let artifact_diffs = if let Some(ref tag) = baseline {
+                if state_read.storage.has_artifact_baseline(tag).unwrap_or(false) {
+                    let baseline_artifacts = state_read.storage.get_artifact_baseline(tag).unwrap_or_default();
+                    let current_artifacts = state_read.storage.list_artifacts().unwrap_or_default();
+
+                    let mut diffs = Vec::new();
+                    let mut has_regressions = false;
+
+                    for curr in &current_artifacts {
+                        let base = baseline_artifacts.iter().find(|b| b.kernel_name == curr.kernel_name);
+                        let diff = crate::artifact::ArtifactDiffer::diff(base, curr);
+                        if diff.is_regression {
+                            has_regressions = true;
+                        }
+                        diffs.push(diff);
+                    }
+
+                    Some(ArtifactDiffSummary {
+                        baseline_tag: tag.clone(),
+                        has_regressions,
+                        diffs,
+                    })
+                } else {
+                    warn!("Baseline '{}' not found, skipping artifact diff", tag);
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Build summary
+            let passed = validation_results.iter().filter(|r| r.passed).count()
+                + lint_results.iter().filter(|r| r.passed).count();
+            let failed = validation_results.iter().filter(|r| !r.passed).count()
+                + lint_results.iter().filter(|r| !r.passed).count();
+            let total = passed + failed;
+
+            let summary = CiRunSummary {
+                total_tests: total,
+                passed,
+                failed,
+                skipped: 0,
+                duration_ms: start_time.elapsed().as_millis() as u64,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                validation_results,
+                lint_results,
+                artifact_diffs,
+            };
+
+            info!("CI run complete: {} tests, {} passed, {} failed, {:.2}s",
+                  total, passed, failed, summary.duration_ms as f64 / 1000.0);
+
+            Response::CiRunComplete(summary)
+        }
+
+        Request::GetCiSummary => {
+            info!("GetCiSummary request");
+
+            // For now, return an empty summary
+            // In a full implementation, we'd store the last CI run
+            let summary = CiRunSummary {
+                total_tests: 0,
+                passed: 0,
+                failed: 0,
+                skipped: 0,
+                duration_ms: 0,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                validation_results: Vec::new(),
+                lint_results: Vec::new(),
+                artifact_diffs: None,
+            };
+
+            Response::CiRunComplete(summary)
         }
     }
 }

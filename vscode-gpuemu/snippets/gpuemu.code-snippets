@@ -1,0 +1,63 @@
+{
+  "gpuemu op configuration": {
+    "prefix": ["op", "gpuemu-op"],
+    "body": [
+      "[[ops]]",
+      "name = \"${1:op_name}\"",
+      "module = \"${2:module.name}\"",
+      "reference = \"scripts/ref_${1:op_name}.py\"",
+      "",
+      "[ops.tolerances]",
+      "float32 = ${3:1e-5}",
+      "float16 = ${4:1e-3}",
+      "",
+      "[ops.invariants]",
+      "no_nan = ${5:true}",
+      "no_inf = ${6:true}",
+      "$0"
+    ],
+    "description": "Add a new op configuration to gpuemu.toml"
+  },
+  "gpuemu kernel configuration": {
+    "prefix": ["kernel", "gpuemu-kernel"],
+    "body": [
+      "[[kernels]]",
+      "name = \"${1:kernel_name}\"",
+      "source = \"kernels/${1:kernel_name}.cu\"",
+      "reference = \"scripts/ref_${1:kernel_name}.py\"",
+      "",
+      "[kernels.tolerances]",
+      "float32 = ${2:1e-5}",
+      "",
+      "[kernels.artifact_checks]",
+      "max_registers = ${3:64}",
+      "max_spills = ${4:0}",
+      "max_local_memory = ${5:0}",
+      "$0"
+    ],
+    "description": "Add a new kernel configuration to gpuemu.toml"
+  },
+  "gpuemu tolerances": {
+    "prefix": ["tolerances", "gpuemu-tol"],
+    "body": [
+      "[${1:ops}.tolerances]",
+      "float32 = ${2:1e-5}",
+      "float16 = ${3:1e-3}",
+      "bfloat16 = ${4:1e-3}",
+      "$0"
+    ],
+    "description": "Add tolerance configuration"
+  },
+  "gpuemu invariants": {
+    "prefix": ["invariants", "gpuemu-inv"],
+    "body": [
+      "[${1:ops}.invariants]",
+      "no_nan = ${2:true}",
+      "no_inf = ${3:true}",
+      "non_negative = ${4:false}",
+      "shape_preserved = ${5:true}",
+      "$0"
+    ],
+    "description": "Add invariant checks"
+  }
+}

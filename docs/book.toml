@@ -1,0 +1,40 @@
+[book]
+authors = ["gpuemu contributors"]
+language = "en"
+multilingual = false
+src = "src"
+title = "gpuemu Documentation"
+description = "GPU-less validation for deep learning kernels"
+
+[build]
+build-dir = "book"
+create-missing = true
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "coal"
+git-repository-url = "https://github.com/example/gpuemu"
+edit-url-template = "https://github.com/example/gpuemu/edit/main/docs/{path}"
+no-section-label = false
+additional-css = []
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+editable = false
+copyable = true
+copy-js = true
+
+[output.html.search]
+enable = true
+limit-results = 30
+teaser-word-count = 30
+use-hierarchical-index = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 3
+copy-js = true

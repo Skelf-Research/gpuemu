@@ -14,6 +14,15 @@ export interface ValidationFailure {
     message: string;
     shape?: number[];
     dtype?: string;
+    kind?: string;
+    maxDiff?: number;
+    referencePath?: string;
+    range?: {
+        startLine: number;
+        startChar?: number;
+        endLine?: number;
+        endChar?: number;
+    };
 }
 
 export class GpuemuRunner {
@@ -157,13 +166,48 @@ export class GpuemuRunner {
         const lines = output.split('\n');
 
         for (const line of lines) {
-            // Parse format: SEED             OP              PASSED     FIRST FAILURE
-            const match = line.match(/^(\d+)\s+(\S+)\s+(true|false)\s+(.*)$/);
+            // Parse format: SEED  OP  MESSAGE  [KIND] [DTYPE] [SHAPE] [MAX_DIFF]
+            const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
             if (match) {
+                const seed = parseInt(match[1]);
+                const opName = match[2];
+                const rest = match[3];
+
+                let message = rest;
+                let kind: string | undefined;
+                let dtype: string | undefined;
+                let shape: number[] | undefined;
+                let maxDiff: number | undefined;
+
+                // Try to extract structured fields from the message
+                const kindMatch = rest.match(/\[(\w+)\]/);
+                if (kindMatch) {
+                    kind = kindMatch[1];
+                }
+
+                const dtypeMatch = rest.match(/dtype:\s*(\S+)/);
+                if (dtypeMatch) {
+                    dtype = dtypeMatch[1];
+                }
+
+                const shapeMatch = rest.match(/shape:\s*\[([^\]]+)\]/);
+                if (shapeMatch) {
+                    shape = shapeMatch[1].split(',').map(s => parseInt(s.trim()));
+                }
+
+                const diffMatch = rest.match(/max_diff:\s*([\d.eE+-]+)/);
+                if (diffMatch) {
+                    maxDiff = parseFloat(diffMatch[1]);
+                }
+
                 failures.push({
-                    seed: parseInt(match[1]),
-                    opName: match[2],
-                    message: match[4],
+                    seed,
+                    opName,
+                    message: message.trim(),
+                    kind,
+                    dtype,
+                    shape,
+                    maxDiff,
                 });
             }
         }

@@ -108,6 +108,7 @@ impl Storage {
     }
 
     /// Clear all results (for testing).
+    #[allow(dead_code)]
     pub fn clear_results(&self) -> Result<()> {
         let tree = self.db.open_tree("results")?;
         tree.clear()?;
@@ -116,6 +117,7 @@ impl Storage {
     }
 
     /// Flush all pending writes to disk.
+    #[allow(dead_code)]
     pub fn flush(&self) -> Result<()> {
         self.db.flush()?;
         Ok(())
@@ -177,12 +179,14 @@ impl Storage {
     }
 
     /// Count total stored failures.
+    #[allow(dead_code)]
     pub fn count_failures(&self) -> Result<usize> {
         let tree = self.db.open_tree("failures")?;
         Ok(tree.len())
     }
 
     /// Clear all failures (for testing).
+    #[allow(dead_code)]
     pub fn clear_failures(&self) -> Result<()> {
         let tree = self.db.open_tree("failures")?;
         tree.clear()?;
@@ -205,6 +209,7 @@ impl Storage {
     }
 
     /// Get a stored fuzz configuration by seed.
+    #[allow(dead_code)]
     pub fn get_fuzz_config(&self, seed: u64) -> Result<Option<FuzzConfig>> {
         let tree = self.db.open_tree("fuzz_configs")?;
         let key = seed.to_be_bytes();
@@ -324,6 +329,7 @@ impl Storage {
     }
 
     /// Clear all artifacts (for testing).
+    #[allow(dead_code)]
     pub fn clear_artifacts(&self) -> Result<()> {
         let tree = self.db.open_tree("artifacts")?;
         tree.clear()?;
@@ -342,13 +348,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let storage = Storage::open(tmp.path().join("test.db")).unwrap();
 
-        let result = ValidationResult::pass(
-            "test_op".to_string(),
-            12345,
-            1e-6,
-            1e-7,
-            100,
-        );
+        let result = ValidationResult::pass("test_op".to_string(), 12345, 1e-6, 1e-7, 100);
 
         storage.store_result(&result).unwrap();
 
@@ -365,13 +365,7 @@ mod tests {
         let storage = Storage::open(tmp.path().join("test.db")).unwrap();
 
         for i in 0..5 {
-            let result = ValidationResult::pass(
-                format!("op_{}", i),
-                i as u64,
-                1e-6,
-                1e-7,
-                100,
-            );
+            let result = ValidationResult::pass(format!("op_{}", i), i as u64, 1e-6, 1e-7, 100);
             storage.store_result(&result).unwrap();
         }
 

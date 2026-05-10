@@ -2,12 +2,14 @@ import * as vscode from 'vscode';
 import { GpuemuRunner } from '../runner';
 import { GpuemuStatusBar } from '../providers/statusBar';
 import { FailuresTreeProvider } from '../providers/failuresTree';
+import { DiagnosticManager } from '../providers/diagnostics';
 
 export function registerCommands(
     context: vscode.ExtensionContext,
     runner: GpuemuRunner,
     statusBar: GpuemuStatusBar | undefined,
-    failuresProvider: FailuresTreeProvider
+    failuresProvider: FailuresTreeProvider,
+    diagnostics: DiagnosticManager | undefined,
 ) {
     // Init command
     context.subscriptions.push(
@@ -80,6 +82,11 @@ export function registerCommands(
             const terminal = vscode.window.createTerminal('gpuemu test');
             terminal.show();
             terminal.sendText('gpuemu test');
+            // Refresh diagnostics after tests complete (give time for daemon to store results)
+            setTimeout(async () => {
+                await diagnostics?.refresh();
+                await failuresProvider.refresh();
+            }, 5000);
         })
     );
 
@@ -89,20 +96,29 @@ export function registerCommands(
             const terminal = vscode.window.createTerminal('gpuemu test');
             terminal.show();
             terminal.sendText('gpuemu test --quick');
+            setTimeout(async () => {
+                await diagnostics?.refresh();
+                await failuresProvider.refresh();
+            }, 3000);
         })
     );
 
     // Fuzz command
     context.subscriptions.push(
-        vscode.commands.registerCommand('gpuemu.fuzz', async () => {
-            const iterations = await vscode.window.showInputBox({
-                prompt: 'Number of iterations',
-                value: '100',
-                validateInput: (value) => {
-                    const num = parseInt(value);
-                    return isNaN(num) || num <= 0 ? 'Enter a positive number' : undefined;
-                },
-            });
+        vscode.commands.registerCommand('gpuemu.fuzz', async (options?: { op?: string; iterations?: number }) => {
+            let iterations = options?.iterations?.toString();
+            let opName = options?.op;
+
+            if (!iterations) {
+                iterations = await vscode.window.showInputBox({
+                    prompt: 'Number of iterations',
+                    value: '100',
+                    validateInput: (value) => {
+                        const num = parseInt(value);
+                        return isNaN(num) || num <= 0 ? 'Enter a positive number' : undefined;
+                    },
+                });
+            }
 
             if (!iterations) {
                 return;
@@ -110,7 +126,12 @@ export function registerCommands(
 
             const terminal = vscode.window.createTerminal('gpuemu fuzz');
             terminal.show();
-            terminal.sendText(`gpuemu fuzz --iterations ${iterations}`);
+            const opArg = opName ? ` --op ${opName}` : '';
+            terminal.sendText(`gpuemu fuzz --iterations ${iterations}${opArg}`);
+            setTimeout(async () => {
+                await diagnostics?.refresh();
+                await failuresProvider.refresh();
+            }, parseInt(iterations) * 100);
         })
     );
 

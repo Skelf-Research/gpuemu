@@ -13,6 +13,7 @@ use thiserror::Error;
 
 /// Errors that can occur during artifact analysis.
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum ArtifactError {
     #[error("PTX parse error: {0}")]
     PtxParseError(String),
@@ -122,9 +123,7 @@ impl PtxParser {
 
     /// Extract kernel name from PTX content if not provided.
     pub fn extract_kernel_name(&self, ptx: &str) -> Option<String> {
-        self.kernel_re
-            .captures(ptx)
-            .map(|caps| caps[1].to_string())
+        self.kernel_re.captures(ptx).map(|caps| caps[1].to_string())
     }
 }
 
@@ -135,8 +134,10 @@ impl Default for PtxParser {
 }
 
 /// SASS parser using cuobjdump (optional, requires NVIDIA tools).
+#[allow(dead_code)]
 pub struct SassParser;
 
+#[allow(dead_code)]
 impl SassParser {
     /// Check if cuobjdump is available on the system.
     pub fn is_available() -> bool {
@@ -594,8 +595,8 @@ mod tests {
 
         let current = ArtifactMetrics {
             kernel_name: "test".to_string(),
-            register_count: 32, // Decreased!
-            spill_count: 0,     // Decreased!
+            register_count: 32,    // Decreased!
+            spill_count: 0,        // Decreased!
             local_memory_bytes: 0, // Decreased!
             shared_memory_bytes: 0,
             instruction_count: 90,

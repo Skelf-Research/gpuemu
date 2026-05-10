@@ -137,7 +137,11 @@ class PyTorchAdapter(FrameworkAdapter):
             allow_unused=True,
         )
 
-        return {name: grad for name, grad in zip(grad_inputs.keys(), grads) if grad is not None}
+        return {
+            name: grad
+            for name, grad in zip(grad_inputs.keys(), grads)
+            if grad is not None
+        }
 
     def is_available(self) -> bool:
         """Check if PyTorch is installed."""
@@ -298,7 +302,9 @@ def check_autograd(
     # Analytical gradients
     loss.backward()
     analytical_grads = {
-        k: inputs_with_grad[k].grad.clone() for k in check_inputs if inputs_with_grad[k].grad is not None
+        k: inputs_with_grad[k].grad.clone()
+        for k in check_inputs
+        if inputs_with_grad[k].grad is not None
     }
 
     # Numerical gradients via finite differences
@@ -425,3 +431,143 @@ def validate_custom_autograd_function(
         result["details"].append(f"Gradient check failed: {e}")
 
     return result
+
+
+def fuzz_pytorch_op(
+    client: "Client",
+    op_name: str,
+    run_op: "Callable[[Dict[str, torch.Tensor]], torch.Tensor]",
+    iterations: int = 100,
+    seed: Optional[int] = None,
+    fail_fast: bool = False,
+    check_backward: bool = False,
+    atol: Optional[float] = None,
+    rtol: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Fuzz a PyTorch op with client-side GPU execution.
+
+    This is the primary drop-in method for PyTorch developers. The daemon
+    generates random inputs, you run your GPU op, and gpuemu validates
+    the output against the reference. Optionally validates gradients too.
+
+    Args:
+        client: gpuemu Client instance.
+        op_name: Name of the op (must be registered in gpuemu.toml).
+        run_op: Callable that takes a dict of torch.Tensor inputs and
+                returns a torch.Tensor output. This is YOUR GPU kernel.
+        iterations: Number of fuzz iterations.
+        seed: Master seed. Auto-generated if None.
+        fail_fast: Stop on first failure.
+        check_backward: Also validate gradients via finite differences.
+        atol: Absolute tolerance override.
+        rtol: Relative tolerance override.
+
+    Returns:
+        Dict with 'total', 'passed', 'failed', 'forward_failures', 'backward_failures'.
+
+    Example:
+        >>> client = Client()
+        >>> result = fuzz_pytorch_op(
+        ...     client,
+        ...     "flash_attention",
+        ...     run_op=lambda inputs: flash_attn_func(inputs["q"], inputs["k"], inputs["v"]),
+        ...     iterations=50,
+        ...     check_backward=True,
+        ... )
+        >>> print(f"Passed: {result['passed']}/{result['total']}")
+    """
+    import torch
+
+    adapter = PyTorchAdapter()
+
+    cases = client.get_test_batch(op_name, count=iterations, seed=seed)
+
+    total = 0
+    passed = 0
+    failed = 0
+    forward_failures = []
+    backward_failures = []
+
+    for case in cases:
+        total += 1
+
+        # Convert numpy inputs to torch tensors on GPU
+        torch_inputs = {
+            k: adapter.from_numpy(v).cuda() for k, v in case["inputs"].items()
+        }
+
+        try:
+            # Run the actual GPU op
+            output = run_op(torch_inputs)
+
+            # Validate forward pass
+            np_output = adapter.to_numpy(output)
+            kwargs = {}
+            if atol is not None:
+                kwargs["atol"] = atol
+            if rtol is not None:
+                kwargs["rtol"] = rtol
+
+            result = client.submit_output(
+                op_name,
+                case["inputs"],
+                np_output,
+                case["seed"],
+                **kwargs,
+            )
+
+            if result.passed:
+                passed += 1
+            else:
+                failed += 1
+                forward_failures.append(result)
+                if fail_fast:
+                    break
+
+            # Optional backward pass check
+            if check_backward and any(
+                adapter.requires_grad(t) for t in torch_inputs.values()
+            ):
+                try:
+                    grad_ok = check_autograd(
+                        lambda **kw: run_op(kw),
+                        {
+                            k: v.clone().detach().requires_grad_(True)
+                            if adapter.requires_grad(v)
+                            else v.clone().detach()
+                            for k, v in torch_inputs.items()
+                        },
+                    )
+                    if not grad_ok:
+                        backward_failures.append(
+                            {
+                                "seed": case["seed"],
+                                "message": "Gradient check failed (analytical vs numerical)",
+                            }
+                        )
+                except Exception as e:
+                    backward_failures.append(
+                        {
+                            "seed": case["seed"],
+                            "message": f"Gradient check error: {e}",
+                        }
+                    )
+
+        except Exception as e:
+            failed += 1
+            forward_failures.append(
+                {
+                    "seed": case["seed"],
+                    "message": f"Op execution failed: {e}",
+                }
+            )
+            if fail_fast:
+                break
+
+    return {
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "forward_failures": forward_failures,
+        "backward_failures": backward_failures,
+    }

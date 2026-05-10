@@ -14,6 +14,7 @@ pub struct DebugConfig {
     /// Filter by op name
     pub op: Option<String>,
     /// Use REPL mode (vs TUI)
+    #[allow(dead_code)]
     pub repl_mode: bool,
 }
 

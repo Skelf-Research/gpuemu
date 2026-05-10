@@ -3,14 +3,52 @@
 This module provides a deterministic RNG that can derive sub-RNGs
 for different domains (shapes, dtypes, layouts, data) from a master seed.
 The derivation uses Blake2b to ensure cross-language compatibility with Rust.
+
+The underlying PRNG uses xorshift128+ which is implemented identically
+in Rust, ensuring bit-for-bit reproducibility between both languages.
 """
 
 import hashlib
+import math
 from typing import List, TypeVar, Sequence
 
 import numpy as np
 
 T = TypeVar("T")
+
+
+def _splitmix64(seed: int) -> int:
+    """SplitMix64: deterministic state expansion from a single u64.
+
+    Matches the Rust implementation exactly:
+    z = (seed + 0x9E3779B97F4A7C15) & 0xFFFFFFFFFFFFFFFF
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & 0xFFFFFFFFFFFFFFFF
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & 0xFFFFFFFFFFFFFFFF
+    z = (z ^ (z >> 31)) & 0xFFFFFFFFFFFFFFFF
+    """
+    MASK = 0xFFFFFFFFFFFFFFFF
+    z = (seed + 0x9E3779B97F4A7C15) & MASK
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & MASK
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & MASK
+    z = (z ^ (z >> 31)) & MASK
+    return z
+
+
+def _xorshift128plus(s0: int, s1: int) -> tuple:
+    """xorshift128+ PRNG step. Returns (random_u64, new_s0, new_s1).
+
+    This matches the Rust implementation exactly.
+    """
+    MASK = 0xFFFFFFFFFFFFFFFF
+    x = s0
+    y = s1
+    s0_new = y
+    x = (x ^ ((x << 23) & MASK)) & MASK
+    x = (x ^ (x >> 17)) & MASK
+    x = (x ^ y ^ (y >> 26)) & MASK
+    s1_new = (x ^ y) & MASK
+    result = (x + y) & MASK
+    return result, s0_new, s1_new
 
 
 def derive_seed(seed: int, domain: str) -> int:
@@ -27,10 +65,8 @@ def derive_seed(seed: int, domain: str) -> int:
     Returns:
         Derived seed (u64).
     """
-    # Ensure seed is within u64 range
     seed = seed & 0xFFFFFFFFFFFFFFFF
 
-    # Hash seed (little-endian) + domain using Blake2b with 8-byte digest
     h = hashlib.blake2b(digest_size=8)
     h.update(seed.to_bytes(8, "little"))
     h.update(domain.encode("utf-8"))
@@ -51,8 +87,10 @@ def generate_seed() -> int:
 class SeededRng:
     """Deterministic RNG wrapper for reproducible fuzzing.
 
-    Uses numpy's PCG64 as the underlying RNG.
-    Seed derivation uses Blake2b-64 for cross-language compatibility.
+    Uses xorshift128+ as the underlying PRNG for cross-language
+    compatibility with the Rust implementation. Seed derivation uses
+    Blake2b-64. Initialization uses SplitMix64 to expand a single u64
+    seed into the 128-bit state.
 
     Example:
         >>> master = SeededRng(12345)
@@ -68,12 +106,24 @@ class SeededRng:
             seed: The seed value (u64).
         """
         self._seed = seed & 0xFFFFFFFFFFFFFFFF
-        self._rng = np.random.Generator(np.random.PCG64(self._seed))
+        # Initialize state using SplitMix64, matching Rust exactly
+        s0 = _splitmix64(self._seed)
+        s1 = _splitmix64((self._seed + 1) & 0xFFFFFFFFFFFFFFFF)
+        # Ensure non-zero state
+        if s0 == 0 and s1 == 0:
+            s0 = 1
+        self._s0 = s0
+        self._s1 = s1
 
     @property
     def seed(self) -> int:
         """Get the seed used to create this RNG."""
         return self._seed
+
+    def _next_u64(self) -> int:
+        """Generate the next random u64 using xorshift128+."""
+        result, self._s0, self._s1 = _xorshift128plus(self._s0, self._s1)
+        return result
 
     def derive(self, domain: str) -> "SeededRng":
         """Derive a sub-RNG for a specific domain.
@@ -105,7 +155,7 @@ class SeededRng:
         """
         if len(options) == 0:
             raise ValueError("Cannot choose from empty sequence")
-        idx = int(self._rng.integers(0, len(options)))
+        idx = self._next_u64() % len(options)
         return options[idx]
 
     def choice_index(self, length: int) -> int:
@@ -119,7 +169,7 @@ class SeededRng:
         """
         if length <= 0:
             raise ValueError("Cannot choose from empty range")
-        return int(self._rng.integers(0, length))
+        return self._next_u64() % length
 
     def gen_range(self, low: int, high: int) -> int:
         """Generate a random integer in [low, high).
@@ -131,7 +181,8 @@ class SeededRng:
         Returns:
             A random integer.
         """
-        return int(self._rng.integers(low, high))
+        width = high - low
+        return low + (self._next_u64() % width)
 
     def gen_u64(self) -> int:
         """Generate a random u64.
@@ -139,15 +190,17 @@ class SeededRng:
         Returns:
             A random 64-bit unsigned integer.
         """
-        return int(self._rng.integers(0, 2**64, dtype=np.uint64))
+        return self._next_u64()
 
     def gen_f32(self) -> float:
         """Generate a random float in [0, 1).
 
         Returns:
-            A random float.
+            A random float32-range value.
         """
-        return float(self._rng.random())
+        x = self._next_u64()
+        # Use upper 24 bits for mantissa, matching Rust
+        return (x >> 40) / (1 << 24)
 
     def gen_f64(self) -> float:
         """Generate a random float in [0, 1).
@@ -155,7 +208,9 @@ class SeededRng:
         Returns:
             A random float.
         """
-        return float(self._rng.random())
+        x = self._next_u64()
+        # Use upper 53 bits for mantissa, matching Rust
+        return (x >> 11) / (1 << 53)
 
     def randn(self, *shape: int) -> np.ndarray:
         """Generate random values from standard normal distribution.
@@ -166,7 +221,7 @@ class SeededRng:
         Returns:
             Array of random normal values (float32).
         """
-        return self._rng.standard_normal(shape).astype(np.float32)
+        return self._box_muller_f32(shape).astype(np.float32)
 
     def randn_f64(self, *shape: int) -> np.ndarray:
         """Generate random values from standard normal distribution.
@@ -177,7 +232,28 @@ class SeededRng:
         Returns:
             Array of random normal values (float64).
         """
-        return self._rng.standard_normal(shape)
+        return self._box_muller_f64(shape)
+
+    def _box_muller_f64(self, shape) -> np.ndarray:
+        """Box-Muller transform for f64 normal distribution."""
+        n = 1
+        for s in shape:
+            n *= s
+        result = np.empty(n, dtype=np.float64)
+        for i in range(0, n, 2):
+            u1 = self.gen_f64()
+            u2 = self.gen_f64()
+            u1 = max(u1, 1e-300)
+            r = math.sqrt(-2.0 * math.log(u1))
+            theta = 2.0 * math.pi * u2
+            result[i] = r * math.cos(theta)
+            if i + 1 < n:
+                result[i + 1] = r * math.sin(theta)
+        return result.reshape(shape)
+
+    def _box_muller_f32(self, shape) -> np.ndarray:
+        """Box-Muller transform for f32 normal distribution."""
+        return self._box_muller_f64(shape).astype(np.float32)
 
     def shuffle(self, sequence: List[T]) -> None:
         """Shuffle a list in place.
@@ -185,7 +261,9 @@ class SeededRng:
         Args:
             sequence: List to shuffle.
         """
-        self._rng.shuffle(sequence)
+        for i in range(len(sequence) - 1, 0, -1):
+            j = self._next_u64() % (i + 1)
+            sequence[i], sequence[j] = sequence[j], sequence[i]
 
     def gen_bool(self, probability: float = 0.5) -> bool:
         """Generate a random boolean.
@@ -196,16 +274,17 @@ class SeededRng:
         Returns:
             A random boolean.
         """
-        return bool(self._rng.random() < probability)
+        return self.gen_f64() < probability
 
 
 # Cross-language compatibility tests
 if __name__ == "__main__":
-    # These values can be compared with Rust to verify compatibility
+    # These values must match the Rust implementation exactly
     print(f"derive_seed(42, 'test') = {derive_seed(42, 'test')}")
 
     rng = SeededRng(42)
     print(f"SeededRng(42).gen_u64() = {rng.gen_u64()}")
+    print(f"SeededRng(42).gen_f64() = {rng.gen_f64()}")
 
     # Test determinism
     rng1 = SeededRng(12345)
@@ -221,3 +300,7 @@ if __name__ == "__main__":
     print(f"\nDerived seeds:")
     print(f"  shapes: {shapes.seed}")
     print(f"  data: {data.seed}")
+
+    # Verify SplitMix64 initialization
+    print(f"\nsplitmix64(42) = {_splitmix64(42)}")
+    print(f"splitmix64(43) = {_splitmix64(43)}")

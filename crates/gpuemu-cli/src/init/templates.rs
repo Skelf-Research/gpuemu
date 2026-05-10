@@ -20,21 +20,24 @@ float32 = 1e-5
 float16 = 1e-3
 bfloat16 = 1e-3
 
-# Example op configuration - uncomment and modify for your ops
-# [[ops]]
-# name = "my_custom_op"
-# module = "my_module.custom_op"
-# reference = "scripts/ref_my_custom_op.py"
-#
-# [ops.tolerances]
-# float32 = 1e-5
-# float16 = 1e-3
-#
-# [ops.invariants]
-# non_negative = false
-# shape_preserved = true
-# no_nan = true
-# no_inf = true
+ # Example op configuration - uncomment and modify for your ops
+  # [[ops]]
+  # name = "my_custom_op"
+  # module = "my_module.custom_op"
+  # reference = "scripts/ref_my_custom_op.py"
+  # input_names = ["x"]
+ # execution_mode = "client_side"   # "client_side" | "daemon_orchestrated" | "script_based"
+  # op_script = "scripts/run_my_custom_op.py"   # only needed for script_based mode
+  #
+  # [ops.tolerances]
+  # float32 = 1e-5
+  # float16 = 1e-3
+  #
+  # [ops.invariants]
+  # non_negative = false
+  # shape_preserved = true
+  # no_nan = true
+  # no_inf = true
 
 # Example kernel configuration - uncomment and modify for your kernels
 # [[kernels]]
@@ -67,11 +70,31 @@ pub const PYTORCH_REFERENCE: &str = r#"#!/usr/bin/env python3
 """Reference implementation for {{op_name}} validation.
 
 This script is called by the gpuemu daemon to compute expected outputs.
-Inputs are received via pickle on stdin, outputs are written via pickle on stdout.
+Inputs are received via JSON+base64 on stdin, outputs are written via JSON+base64 on stdout.
 """
 import sys
-import pickle
+import json
+import base64
+import numpy as np
 import torch
+
+
+def decode_tensor(tensor_dict):
+    """Decode a tensor from the gpuemu protocol."""
+    shape = tensor_dict["shape"]
+    dtype = np.dtype(tensor_dict["dtype"])
+    data = base64.b64decode(tensor_dict["data"])
+    return torch.from_numpy(np.frombuffer(data, dtype=dtype).reshape(shape).copy())
+
+
+def encode_tensor(t):
+    """Encode a tensor for gpuemu output."""
+    arr = t.detach().cpu().numpy() if isinstance(t, torch.Tensor) else np.asarray(t)
+    return {
+        "shape": list(arr.shape),
+        "dtype": str(arr.dtype),
+        "data": base64.b64encode(arr.tobytes()).decode("utf-8"),
+    }
 
 
 def reference(**inputs: dict) -> torch.Tensor:
@@ -93,14 +116,24 @@ def reference(**inputs: dict) -> torch.Tensor:
 
 
 if __name__ == "__main__":
-    # Read inputs from stdin
-    inputs = pickle.load(sys.stdin.buffer)
+    # Read input from stdin
+    input_json = json.load(sys.stdin)
+
+    # Decode input tensors
+    inputs = {
+        name: decode_tensor(tensor)
+        for name, tensor in input_json["inputs"].items()
+    }
+
+    # Get kwargs
+    kwargs = input_json.get("kwargs", {})
 
     # Compute reference output
-    result = reference(**inputs)
+    result = reference(**inputs, **kwargs)
 
-    # Write result to stdout
-    pickle.dump(result.cpu(), sys.stdout.buffer)
+    # Encode and output
+    output = encode_tensor(result)
+    json.dump(output, sys.stdout)
 "#;
 
 /// Template for JAX reference script.
@@ -108,11 +141,31 @@ pub const JAX_REFERENCE: &str = r#"#!/usr/bin/env python3
 """Reference implementation for {{op_name}} validation.
 
 This script is called by the gpuemu daemon to compute expected outputs.
-Inputs are received via pickle on stdin, outputs are written via pickle on stdout.
+Inputs are received via JSON+base64 on stdin, outputs are written via JSON+base64 on stdout.
 """
 import sys
-import pickle
+import json
+import base64
+import numpy as np
 import jax.numpy as jnp
+
+
+def decode_tensor(tensor_dict):
+    """Decode a tensor from the gpuemu protocol."""
+    shape = tensor_dict["shape"]
+    dtype = np.dtype(tensor_dict["dtype"])
+    data = base64.b64decode(tensor_dict["data"])
+    return jnp.array(np.frombuffer(data, dtype=dtype).reshape(shape).copy())
+
+
+def encode_tensor(arr):
+    """Encode an array for gpuemu output."""
+    np_arr = np.asarray(arr)
+    return {
+        "shape": list(np_arr.shape),
+        "dtype": str(np_arr.dtype),
+        "data": base64.b64encode(np_arr.tobytes()).decode("utf-8"),
+    }
 
 
 def reference(**inputs: dict) -> jnp.ndarray:
@@ -134,14 +187,24 @@ def reference(**inputs: dict) -> jnp.ndarray:
 
 
 if __name__ == "__main__":
-    # Read inputs from stdin
-    inputs = pickle.load(sys.stdin.buffer)
+    # Read input from stdin
+    input_json = json.load(sys.stdin)
+
+    # Decode input tensors
+    inputs = {
+        name: decode_tensor(tensor)
+        for name, tensor in input_json["inputs"].items()
+    }
+
+    # Get kwargs
+    kwargs = input_json.get("kwargs", {})
 
     # Compute reference output
-    result = reference(**inputs)
+    result = reference(**inputs, **kwargs)
 
-    # Write result to stdout
-    pickle.dump(result, sys.stdout.buffer)
+    # Encode and output
+    output = encode_tensor(result)
+    json.dump(output, sys.stdout)
 "#;
 
 /// Template for TensorFlow reference script.
@@ -149,11 +212,31 @@ pub const TENSORFLOW_REFERENCE: &str = r#"#!/usr/bin/env python3
 """Reference implementation for {{op_name}} validation.
 
 This script is called by the gpuemu daemon to compute expected outputs.
-Inputs are received via pickle on stdin, outputs are written via pickle on stdout.
+Inputs are received via JSON+base64 on stdin, outputs are written via JSON+base64 on stdout.
 """
 import sys
-import pickle
+import json
+import base64
+import numpy as np
 import tensorflow as tf
+
+
+def decode_tensor(tensor_dict):
+    """Decode a tensor from the gpuemu protocol."""
+    shape = tensor_dict["shape"]
+    dtype = np.dtype(tensor_dict["dtype"])
+    data = base64.b64decode(tensor_dict["data"])
+    return tf.constant(np.frombuffer(data, dtype=dtype).reshape(shape).copy())
+
+
+def encode_tensor(t):
+    """Encode a tensor for gpuemu output."""
+    arr = t.numpy() if isinstance(t, tf.Tensor) else np.asarray(t)
+    return {
+        "shape": list(arr.shape),
+        "dtype": str(arr.dtype),
+        "data": base64.b64encode(arr.tobytes()).decode("utf-8"),
+    }
 
 
 def reference(**inputs: dict) -> tf.Tensor:
@@ -175,14 +258,24 @@ def reference(**inputs: dict) -> tf.Tensor:
 
 
 if __name__ == "__main__":
-    # Read inputs from stdin
-    inputs = pickle.load(sys.stdin.buffer)
+    # Read input from stdin
+    input_json = json.load(sys.stdin)
+
+    # Decode input tensors
+    inputs = {
+        name: decode_tensor(tensor)
+        for name, tensor in input_json["inputs"].items()
+    }
+
+    # Get kwargs
+    kwargs = input_json.get("kwargs", {})
 
     # Compute reference output
-    result = reference(**inputs)
+    result = reference(**inputs, **kwargs)
 
-    # Write result to stdout
-    pickle.dump(result.numpy(), sys.stdout.buffer)
+    # Encode and output
+    output = encode_tensor(result)
+    json.dump(output, sys.stdout)
 "#;
 
 /// Template for Python __init__.py in scripts directory.
@@ -268,9 +361,14 @@ pub fn get_reference_template(framework: &str) -> &'static str {
 }
 
 /// Render template with substitutions.
+/// Uses a specific pattern to avoid partial matches by replacing
+/// from longest key to shortest.
 pub fn render_template(template: &str, substitutions: &[(&str, &str)]) -> String {
     let mut result = template.to_string();
-    for (key, value) in substitutions {
+    // Sort by key length descending to avoid partial matches
+    let mut sorted_subs: Vec<_> = substitutions.to_vec();
+    sorted_subs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    for (key, value) in sorted_subs {
         result = result.replace(&format!("{{{{{}}}}}", key), value);
     }
     result

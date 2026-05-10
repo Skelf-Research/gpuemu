@@ -12,8 +12,5 @@ toml = { workspace = true }
 thiserror = { workspace = true }
 rkyv = { workspace = true }
 bytecheck = { workspace = true }
-rand = { workspace = true }
-rand_chacha = { workspace = true }
-rand_distr = { workspace = true }
 blake2 = { workspace = true }
 dirs = "5.0"

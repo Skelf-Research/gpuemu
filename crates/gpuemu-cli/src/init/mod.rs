@@ -222,8 +222,7 @@ fn create_example_files(config: &InitConfig, result: &mut InitResult) -> Result<
     let ref_content = render_template(ref_template, &[("op_name", "example_op")]);
 
     let ref_path = config.target_dir.join("scripts/ref_example_op.py");
-    fs::write(&ref_path, ref_content)
-        .with_context(|| format!("Failed to write {:?}", ref_path))?;
+    fs::write(&ref_path, ref_content).with_context(|| format!("Failed to write {:?}", ref_path))?;
     result.files_created.push(ref_path);
 
     // Create tests directory and example test
@@ -267,11 +266,7 @@ no_inf = true
 }
 
 /// Create CI configuration files.
-fn create_ci_config(
-    config: &InitConfig,
-    ci_platform: &str,
-    result: &mut InitResult,
-) -> Result<()> {
+fn create_ci_config(config: &InitConfig, ci_platform: &str, result: &mut InitResult) -> Result<()> {
     match ci_platform.to_lowercase().as_str() {
         "github" => create_github_actions(config, result),
         "gitlab" => create_gitlab_ci(config, result),
@@ -314,8 +309,7 @@ fn create_gitlab_ci(config: &InitConfig, result: &mut InitResult) -> Result<()> 
         .with_context(|| format!("Failed to read template: {:?}", template_path))?;
 
     let ci_path = config.target_dir.join(".gitlab-ci.yml");
-    fs::write(&ci_path, content)
-        .with_context(|| format!("Failed to write {:?}", ci_path))?;
+    fs::write(&ci_path, content).with_context(|| format!("Failed to write {:?}", ci_path))?;
 
     result.files_created.push(ci_path);
     Ok(())

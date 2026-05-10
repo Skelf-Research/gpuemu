@@ -4,8 +4,19 @@ use rkyv::{Archive, Deserialize, Serialize};
 use serde::{Deserialize as SerdeDeserialize, Serialize as SerdeSerialize};
 
 /// Supported data types for tensor validation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Archive,
+    Serialize,
+    Deserialize,
+    SerdeSerialize,
+    SerdeDeserialize,
+)]
 #[archive(check_bytes)]
 #[serde(rename_all = "lowercase")]
 pub enum DType {
@@ -39,7 +50,7 @@ impl DType {
     pub fn to_numpy_dtype(&self) -> &'static str {
         match self {
             DType::Float16 => "float16",
-            DType::BFloat16 => "float16", // bfloat16 requires special handling
+            DType::BFloat16 => "bfloat16",
             DType::Float32 => "float32",
             DType::Float64 => "float64",
             DType::Int8 => "int8",
@@ -53,10 +64,62 @@ impl DType {
             DType::Bool => "bool",
         }
     }
+
+    /// Parse a dtype from a config string (case-insensitive).
+    /// Accepts: "float16", "bfloat16", "float32", "float64",
+    ///          "int8", "int16", "int32", "int64",
+    ///          "uint8", "uint16", "uint32", "uint64", "bool".
+    /// Returns None for unrecognized strings.
+    pub fn from_config_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "float16" | "f16" => Some(DType::Float16),
+            "bfloat16" | "bf16" => Some(DType::BFloat16),
+            "float32" | "f32" => Some(DType::Float32),
+            "float64" | "f64" => Some(DType::Float64),
+            "int8" | "i8" => Some(DType::Int8),
+            "int16" | "i16" => Some(DType::Int16),
+            "int32" | "i32" => Some(DType::Int32),
+            "int64" | "i64" => Some(DType::Int64),
+            "uint8" | "u8" => Some(DType::UInt8),
+            "uint16" | "u16" => Some(DType::UInt16),
+            "uint32" | "u32" => Some(DType::UInt32),
+            "uint64" | "u64" => Some(DType::UInt64),
+            "bool" => Some(DType::Bool),
+            _ => None,
+        }
+    }
+}
+
+/// Parse a list of dtype config strings into DType enums.
+/// Unrecognized strings are silently skipped; if none match, defaults to [Float32].
+pub fn parse_dtypes(strings: &[String]) -> Vec<DType> {
+    let dtypes: Vec<DType> = strings
+        .iter()
+        .filter_map(|s| DType::from_config_str(s))
+        .collect();
+    if dtypes.is_empty() {
+        vec![DType::Float32]
+    } else {
+        dtypes
+    }
+}
+
+/// Parse a list of layout config strings into LayoutType enums.
+/// Unrecognized strings are silently skipped; if none match, defaults to [Contiguous].
+pub fn parse_layouts(strings: &[String]) -> Vec<LayoutType> {
+    let layouts: Vec<LayoutType> = strings
+        .iter()
+        .filter_map(|s| LayoutType::from_config_str(s))
+        .collect();
+    if layouts.is_empty() {
+        vec![LayoutType::Contiguous]
+    } else {
+        layouts
+    }
 }
 
 /// Tensor metadata and data.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct TensorData {
     /// Shape of the tensor.
@@ -102,8 +165,7 @@ impl TensorData {
 }
 
 /// A single validation failure.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct ValidationFailure {
     /// Type of failure.
@@ -119,8 +181,18 @@ pub struct ValidationFailure {
 }
 
 /// Types of validation failures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    SerdeSerialize,
+    SerdeDeserialize,
+)]
 #[archive(check_bytes)]
 pub enum FailureKind {
     /// Tolerance exceeded.
@@ -140,8 +212,7 @@ pub enum FailureKind {
 }
 
 /// Result of a validation run.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct ValidationResult {
     /// Whether validation passed.
@@ -169,8 +240,18 @@ pub struct ValidationResult {
 // =============================================================================
 
 /// Memory layout type for tensor fuzzing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    SerdeSerialize,
+    SerdeDeserialize,
+)]
 #[archive(check_bytes)]
 pub enum LayoutType {
     /// Standard row-major contiguous layout.
@@ -181,9 +262,29 @@ pub enum LayoutType {
     Transposed,
 }
 
+impl LayoutType {
+    /// Parse from a config string (case-insensitive).
+    pub fn from_config_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "contiguous" => Some(LayoutType::Contiguous),
+            "strided" => Some(LayoutType::Strided),
+            "transposed" => Some(LayoutType::Transposed),
+            _ => None,
+        }
+    }
+
+    /// Convert to a config/presentation string.
+    pub fn to_config_str(&self) -> &'static str {
+        match self {
+            LayoutType::Contiguous => "contiguous",
+            LayoutType::Strided => "strided",
+            LayoutType::Transposed => "transposed",
+        }
+    }
+}
+
 /// Shape options for fuzzing.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct ShapeOptions {
     /// Batch size options to fuzz.
@@ -208,8 +309,7 @@ impl Default for ShapeOptions {
 }
 
 /// Configuration for fuzz testing.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct FuzzConfig {
     /// Master seed for all random decisions.
@@ -228,7 +328,11 @@ impl Default for FuzzConfig {
             seed: 0,
             shape_options: ShapeOptions::default(),
             dtypes: vec![DType::Float32, DType::Float16],
-            layouts: vec![LayoutType::Contiguous, LayoutType::Strided, LayoutType::Transposed],
+            layouts: vec![
+                LayoutType::Contiguous,
+                LayoutType::Strided,
+                LayoutType::Transposed,
+            ],
         }
     }
 }
@@ -246,8 +350,7 @@ impl FuzzConfig {
 /// Full reproduction info stored with failures.
 ///
 /// Contains all information needed to reproduce a failing test case.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct ReproductionInfo {
     /// Master seed that generated this test case.
@@ -268,7 +371,13 @@ pub struct ReproductionInfo {
 
 impl ValidationResult {
     /// Create a passing result.
-    pub fn pass(op_name: String, seed: u64, max_diff: f64, max_rel_diff: f64, duration_ms: u64) -> Self {
+    pub fn pass(
+        op_name: String,
+        seed: u64,
+        max_diff: f64,
+        max_rel_diff: f64,
+        duration_ms: u64,
+    ) -> Self {
         Self {
             passed: true,
             seed,
@@ -286,7 +395,12 @@ impl ValidationResult {
     }
 
     /// Create a failing result.
-    pub fn fail(op_name: String, seed: u64, failures: Vec<ValidationFailure>, duration_ms: u64) -> Self {
+    pub fn fail(
+        op_name: String,
+        seed: u64,
+        failures: Vec<ValidationFailure>,
+        duration_ms: u64,
+    ) -> Self {
         Self {
             passed: false,
             seed,
@@ -339,8 +453,18 @@ impl ValidationResult {
 // =============================================================================
 
 /// Source of artifact data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    SerdeSerialize,
+    SerdeDeserialize,
+)]
 #[archive(check_bytes)]
 pub enum ArtifactSource {
     /// Parsed from PTX text.
@@ -352,8 +476,7 @@ pub enum ArtifactSource {
 }
 
 /// Extracted metrics from PTX/SASS artifacts.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct ArtifactMetrics {
     /// Kernel name this artifact belongs to.
@@ -396,8 +519,18 @@ impl Default for ArtifactMetrics {
 }
 
 /// Types of lint violations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    SerdeSerialize,
+    SerdeDeserialize,
+)]
 #[archive(check_bytes)]
 pub enum LintViolationKind {
     /// Register count exceeds maximum.
@@ -413,8 +546,7 @@ pub enum LintViolationKind {
 }
 
 /// A single lint violation.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct LintViolation {
     /// Type of violation.
@@ -428,8 +560,7 @@ pub struct LintViolation {
 }
 
 /// Result of linting a kernel's artifacts.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct LintResult {
     /// Kernel name.
@@ -445,8 +576,7 @@ pub struct LintResult {
 }
 
 /// Difference between two artifact metrics.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct ArtifactDiff {
     /// Kernel name.
@@ -472,8 +602,7 @@ pub struct ArtifactDiff {
 // =============================================================================
 
 /// Summary of artifact diff results for CI reporting.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct ArtifactDiffSummary {
     /// Baseline tag that was compared against.
@@ -484,9 +613,30 @@ pub struct ArtifactDiffSummary {
     pub diffs: Vec<ArtifactDiff>,
 }
 
+/// Comparison of a single result against its baseline.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct BaselineComparison {
+    /// Op name for this comparison.
+    pub op_name: String,
+    /// Seed of the current result.
+    pub seed: u64,
+    /// Maximum absolute diff in the current result.
+    pub current_max_diff: f64,
+    /// Maximum absolute diff in the baseline result (None if no baseline match).
+    pub baseline_max_diff: Option<f64>,
+    /// Whether the current result passed.
+    pub current_passed: bool,
+    /// Whether the baseline result passed (None if no baseline match).
+    pub baseline_passed: Option<bool>,
+    /// Relative change in max_diff vs baseline (None if no baseline).
+    pub relative_change: Option<f64>,
+    /// Whether this result represents a regression.
+    pub is_regression: bool,
+}
+
 /// Summary of a CI run for reporting.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-#[derive(SerdeSerialize, SerdeDeserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct CiRunSummary {
     /// Total number of tests run.

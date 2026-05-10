@@ -3,9 +3,8 @@
 use anyhow::{Context, Result};
 use gpuemu_common::types::{DType, TensorData};
 use std::collections::HashMap;
-use std::io::{Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 use tracing::{debug, error, info};
 
@@ -54,12 +53,9 @@ impl Executor {
         info!("Running reference script: {:?}", script_path);
         debug!("Inputs: {} tensors", inputs.len());
 
-        // Serialize inputs to a format the Python script can read
-        // We'll use a simple JSON-based protocol for MVP
         let input_data = self.serialize_inputs(inputs, kwargs)?;
 
-        // Spawn the Python process
-        let mut cmd = Command::new(&self.config.python_path);
+        let mut cmd = tokio::process::Command::new(&self.config.python_path);
         cmd.arg(script_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -76,33 +72,46 @@ impl Executor {
             )
         })?;
 
-        // Write input to stdin
+        // Write input to stdin asynchronously
         if let Some(ref mut stdin) = child.stdin {
+            use tokio::io::AsyncWriteExt;
             stdin
                 .write_all(&input_data)
+                .await
                 .context("Failed to write to script stdin")?;
         }
-        drop(child.stdin.take()); // Close stdin to signal EOF
+        drop(child.stdin.take());
 
-        // Wait for completion with timeout
-        let output = tokio::time::timeout(self.config.timeout, async {
-            tokio::task::spawn_blocking(move || child.wait_with_output())
-                .await
-                .context("Task join error")?
-                .context("Failed to wait for process")
+        // Wait for completion with timeout, killing the child if it exceeds the deadline
+        let timeout = self.config.timeout;
+        let result = tokio::time::timeout(timeout, async {
+            let out = child.wait_with_output().await;
+            out
         })
-        .await
-        .with_context(|| {
-            format!(
-                "Reference script timed out after {:?}",
-                self.config.timeout
-            )
-        })??;
+        .await;
+
+        let output = match result {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => {
+                anyhow::bail!("Failed to wait for process: {}", e);
+            }
+            Err(_) => {
+                anyhow::bail!(
+                    "Reference script {:?} timed out after {:?}",
+                    script_path,
+                    timeout
+                );
+            }
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            error!("Reference script failed: {}", stderr);
-            anyhow::bail!("Reference script failed: {}", stderr);
+            error!("Reference script {:?} failed: {}", script_path, stderr);
+            anyhow::bail!(
+                "Reference script {:?} failed: {}",
+                script_path,
+                stderr.trim()
+            );
         }
 
         // Parse output
@@ -191,6 +200,7 @@ impl Executor {
 }
 
 /// Generate a reference script template.
+#[allow(dead_code)]
 pub fn generate_reference_template() -> String {
     r#"#!/usr/bin/env python3
 """Reference implementation template for gpuemu validation."""

@@ -1,0 +1,124 @@
+site_name: gpuemu
+site_description: GPU-less development, assessment, and validation for deep learning kernels
+site_url: https://gpuemu.dev
+
+repo_name: gpuemu
+repo_url: https://github.com/example/gpuemu
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - ../gpuemu-py
+          options:
+            show_source: true
+            show_root_heading: true
+            heading_level: 3
+            members_order: source
+            docstring_style: google
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.mark
+  - pymdownx.critic
+  - pymdownx.keys
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+  - tables
+  - def_list
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+      - Configuration: getting-started/configuration.md
+  - Concepts:
+      - Architecture: concepts/architecture.md
+      - Execution Modes: concepts/execution-modes.md
+      - Validation: concepts/validation.md
+      - Reference Scripts: concepts/reference-scripts.md
+  - Guides:
+      - Model Developer: guides/model-developer.md
+      - Custom Op Integrator: guides/custom-op-integrator.md
+      - Kernel Author: guides/kernel-author.md
+      - VS Code Extension: guides/vscode-extension.md
+  - Tutorials:
+      - PyTorch Validation: tutorials/pytorch-validation.md
+      - JAX Validation: tutorials/jax-validation.md
+      - TensorFlow Validation: tutorials/tensorflow-validation.md
+      - CI Integration: tutorials/ci-integration.md
+  - Reference:
+      - CLI Commands: reference/cli.md
+      - Config Schema: reference/config-schema.md
+      - Python API: reference/python-api.md
+      - Framework Adapters: reference/framework-adapters.md
+      - IPC Protocol: reference/protocol.md
+      - Environment Variables: reference/environment-variables.md
+  - Troubleshooting:
+      - FAQ: troubleshooting/faq.md
+      - Common Issues: troubleshooting/common-issues.md
+  - Development:
+      - Contributing: development/contributing.md
+      - Architecture Internals: development/architecture-internals.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/example/gpuemu
+  version:
+    provider: mike

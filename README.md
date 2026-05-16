@@ -1,161 +1,154 @@
-# gpuemu
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="gpuemu" width="120" height="120">
+</p>
 
-GPU-less development, assessment, and validation for deep learning kernels.
+<h1 align="center">gpuemu</h1>
 
-This project enables teams to develop and validate GPU-oriented deep learning code without requiring access to physical GPUs. It provides CPU-based execution mirrors, static analysis of GPU artifacts, and CI-friendly validation so you can catch correctness and structural performance regressions early.
+<p align="center">
+  <strong>Ship GPU kernels with confidence — no GPU required.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/skelfresearch/gpuemu/actions"><img src="https://img.shields.io/github/actions/workflow/status/skelfresearch/gpuemu/ci.yml?branch=main&style=flat-square&logo=github" alt="CI"></a>
+  <a href="https://crates.io/crates/gpuemu"><img src="https://img.shields.io/crates/v/gpuemu?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
+  <a href="https://pypi.org/project/gpuemu-py/"><img src="https://img.shields.io/pypi/v/gpuemu-py?style=flat-square&logo=python&logoColor=white" alt="PyPI"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=gpuemu.gpuemu"><img src="https://img.shields.io/visual-studio-marketplace/v/gpuemu.gpuemu?style=flat-square&logo=visualstudiocode&logoColor=white&label=VS%20Code" alt="VS Code"></a>
+  <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?style=flat-square" alt="License"></a>
+</p>
+
+<p align="center">
+  <a href="https://docs.skelfresearch.com/gpuemu">Documentation</a> •
+  <a href="https://docs.skelfresearch.com/gpuemu/quickstart">Quick Start</a> •
+  <a href="https://docs.skelfresearch.com/gpuemu/integrations">Integrations</a> •
+  <a href="https://github.com/skelfresearch/gpuemu/discussions">Community</a>
+</p>
+
+---
+
+## Why gpuemu?
+
+Building GPU kernels is hard. Validating them shouldn't require a GPU farm.
+
+**gpuemu** is a validation and testing toolkit that lets you catch correctness bugs, numerical instabilities, and edge-case failures in your CUDA/GPU kernels — all from your laptop, your CI runner, or anywhere without GPU access.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Your GPU Kernel (CUDA, Triton, custom)                        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  gpuemu                                                         │
+│  ├── CPU mirror execution     → validate math & indexing       │
+│  ├── Shape & layout fuzzing   → expose boundary bugs           │
+│  ├── Numerical stability      → catch precision issues         │
+│  └── Artifact analysis        → flag register spills & issues  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+              ✓ Deterministic, reproducible, CI-ready
+```
+
+### Built for kernel developers
+
+- **Validate without GPUs** — Run correctness tests on any machine. Perfect for CI pipelines.
+- **Fuzz your kernels** — Automatically generate edge-case inputs that expose boundary, stride, and accumulation bugs.
+- **Reproducible failures** — Every failure includes a seed for exact reproduction.
+- **IDE integration** — Failures appear as diagnostics in VS Code. Right-click to reproduce.
+- **Framework agnostic** — Works with PyTorch, JAX, TensorFlow, or raw CUDA.
+
+---
 
 ## Quick Start
 
-### Prerequisites
-
-- Rust 1.70+ (for the daemon and CLI)
-- Python 3.9+ with NumPy (for the client and reference scripts)
-- [pynng](https://pypi.org/project/pynng/) (for the Python client IPC)
-- VS Code 1.85+ (for the editor extension)
-
-### Build & Install
+### Install
 
 ```bash
-# Build the Rust workspace (daemon + CLI)
-cargo build --release
+# Rust daemon + CLI
+cargo install gpuemu
 
-# Install the Python client
-cd gpuemu-py && pip install -e .
+# Python client
+pip install gpuemu-py
 
-# Install the VS Code extension
-cd vscode-gpuemu && npm install && npx vsce package
-code --install-extension gpuemu-0.1.0.vsix
+# VS Code extension (optional)
+code --install-extension gpuemu.gpuemu
 ```
 
-### Initialize a Project
+### Initialize & Run
 
 ```bash
-# Create a new gpuemu project with example ops
-gpuemu init --name my-project --framework pytorch --with-examples
+# Create a new project
+gpuemu init --name my-kernels --framework pytorch
 
-# This creates:
-#   gpuemu.toml      - Configuration file
-#   scripts/         - Reference implementation scripts
-#   .gpuemu/         - Daemon data directory
-```
+# Start the daemon
+gpuemu daemon start
 
-### Start the Daemon
-
-```bash
-gpuemu daemon start     # Start in background
-gpuemu daemon start --foreground  # Start in foreground
-gpuemu status           # Check daemon status
-```
-
-### Run Validation
-
-```bash
-# Quick validation (10 iterations)
+# Run validation
 gpuemu test --quick
-
-# Standard validation (50 iterations)
-gpuemu test
-
-# Fuzz a specific op
-gpuemu fuzz --op matmul --iterations 100
-
-# Run full CI validation with JSON output
-gpuemu ci --quick --format json --output report.json
 ```
 
-### Python Client
-
-```python
-from gpuemu_py import Client, SeededRng
-
-# Connect and check daemon (auto-verifies protocol version)
-client = Client()
-info = client.ping()
-print(f"Daemon v{info['version']}, uptime {info['uptime_secs']}s")
-
-# Validate an op (single-shot)
-result = client.validate_op("my_op", {"x": x_tensor}, output_tensor)
-print(f"Passed: {result.passed}")
-
-# Fuzz test (daemon generates inputs, validates against reference)
-results = client.fuzz_op("my_op", iterations=100, seed=42)
-print(f"{results.passed}/{results.total} passed")
-```
-
-## What this is
-
-- A development and CI toolchain for GPU-targeted kernels that works without GPUs.
-- A correctness and validation harness that runs kernels on CPU with deterministic checks.
-- A policy-driven analyzer that inspects build artifacts (e.g., PTX/IR) to flag regressions.
-- An editor-integrated workflow that surfaces failures as diagnostics in your IDE.
-
-## What this is not
-
-- A cycle-accurate GPU emulator.
-- A replacement for running on real hardware for performance benchmarking.
-- A framework for training or inference itself.
-
-## Core capabilities
-
-- **CPU mirror execution**: Run kernel logic on CPU to validate math, indexing, shapes, and layout handling.
-- **Shape and layout fuzzing**: Automatically generate edge-case tensors to expose boundary and stride bugs.
-- **Numerical stability checks**: Validate accumulation precision, reduction stability, and tolerance envelopes.
-- **Artifact linting**: Inspect compiled artifacts for register pressure, spills, or missing patterns.
-- **CI-first workflow**: Deterministic tests, reproducible seeds, and policy-driven pass/fail gates.
-- **Cross-language RNG**: Bit-for-bit identical xorshift128+ PRNG in both Rust and Python for reproducibility.
-- **Editor integration**: Failures appear as diagnostics in VS Code with code actions for reproduction and minimization.
-
-## Architecture
-
-- **gpuemu-daemon** (Rust): IPC server (NNG/REP0) handling validation, fuzzing, artifact analysis, and storage.
-- **gpuemu** (Rust CLI): Command-line interface for daemon control, testing, fuzzing, and CI.
-- **gpuemu-py** (Python client): Python API for programmatic validation and fuzzing.
-- **vscode-gpuemu** (VS Code extension): Editor integration with diagnostics, code actions, and test explorer.
-
-All IPC uses JSON serialization over NNG Unix-domain sockets for cross-language compatibility (with a protocol version check for forward/backward compatibility).
-
-## Execution Modes
-
-gpuemu supports three execution modes, depending on where the op under test runs:
-
-### 1. Client-Side (Recommended for GPU developers)
-
-The daemon generates random inputs; the **client runs the actual GPU op** and submits the output for validation. This is the primary drop-in path.
+### Python API
 
 ```python
 from gpuemu_py import Client
 
 client = Client()
 
-# The lambda runs YOUR GPU kernel — gpuemu handles validation
+# Fuzz your kernel with 100 random inputs
 results = client.fuzz_op_client_side(
     "flash_attention",
     run_op=lambda inputs: my_flash_attn(inputs["q"], inputs["k"], inputs["v"]),
     iterations=100,
 )
+
 print(f"Passed: {results.passed}/{results.total}")
 ```
 
-### 2. Daemon-Orchestrated
+---
 
-Fine-grained control: fetch test cases from the daemon, run the op yourself, submit outputs one at a time.
+## Core Capabilities
+
+| Capability | What it does |
+|------------|--------------|
+| **CPU Mirror Execution** | Run kernel logic on CPU to validate correctness without GPU hardware |
+| **Shape & Layout Fuzzing** | Auto-generate edge-case tensors (boundary sizes, non-contiguous strides) |
+| **Numerical Stability Checks** | Validate accumulation precision, reduction stability, tolerance envelopes |
+| **Artifact Linting** | Inspect PTX/IR for register pressure, spills, or missing optimizations |
+| **Deterministic CI** | Reproducible seeds, policy-driven pass/fail gates, JSON output |
+| **Cross-language RNG** | Bit-identical xorshift128+ in Rust and Python for reproducibility |
+
+---
+
+## Execution Modes
+
+gpuemu supports three ways to run your kernels:
+
+### Client-Side (Recommended)
+
+Your client runs the GPU kernel; gpuemu validates the output.
 
 ```python
-client = Client()
-
-# Get test cases
-cases = client.get_test_batch("my_op", count=50)
-
-for case in cases:
-    output = my_gpu_op(case["inputs"])       # Run your op
-    result = client.submit_output("my_op", case["inputs"], output, case["seed"])
-    if not result.passed:
-        print(f"FAIL at seed {case['seed']}: {result.failures[0]['message']}")
+results = client.fuzz_op_client_side(
+    "matmul",
+    run_op=lambda inputs: torch.matmul(inputs["a"], inputs["b"]),
+    iterations=100,
+)
 ```
 
-### 3. Script-Based
+### Daemon-Orchestrated
 
-For ops that can be executed from the daemon machine (e.g., the daemon has GPU access). Configure `op_script` in `gpuemu.toml` and the daemon runs both scripts automatically.
+Fine-grained control: fetch test cases, run ops yourself, submit outputs.
+
+```python
+cases = client.get_test_batch("my_op", count=50)
+for case in cases:
+    output = my_gpu_op(case["inputs"])
+    result = client.submit_output("my_op", case["inputs"], output, case["seed"])
+```
+
+### Script-Based
+
+Configure reference scripts in `gpuemu.toml` — the daemon runs everything.
 
 ```toml
 [[ops]]
@@ -165,78 +158,100 @@ op_script = "scripts/run_my_op.py"
 execution_mode = "script_based"
 ```
 
-Set `execution_mode` per op in `gpuemu.toml`: `client_side` (default), `daemon_orchestrated`, or `script_based`.
+---
 
-## VS Code Extension
+## VS Code Integration
 
-The gpuemu extension provides a pseudo-LSP experience — validation failures appear as **red squiggles in your source code** with actionable code actions:
+Validation failures appear as **red squiggles** in your editor with actionable code actions:
 
-### Features
+- **Problems panel** — Failures mapped to source with seed, dtype, and shape info
+- **Code actions** — Right-click → "Reproduce failure" or "Minimize test case"
+- **Test Explorer** — Ops appear in the Testing sidebar
+- **On-save validation** — Auto-triggers when you save reference scripts
 
-| Feature | Description |
-|---------|-------------|
-| **Problems panel** | Validation failures mapped to reference scripts with seed, dtype, and shape info |
-| **Code actions** | Right-click a diagnostic → "Reproduce failure", "Minimize test case" |
-| **Test Explorer** | Ops from `gpuemu.toml` appear in the Testing sidebar |
-| **On-save validation** | Saving a `ref_*.py` or `.cu` file auto-triggers validation |
-| **Config linting** | `gpuemu.toml` errors (invalid dtypes, missing references, wrong execution_mode) surface as diagnostics |
-| **Status bar** | Shows daemon version and uptime; click to start/stop |
-| **Failures tree** | Sidebar view of all stored failures; click to reproduce |
+---
 
-### How it fits your workflow
+## Architecture
 
 ```
-1. Edit ref_flash_attn.py → save
-2. ValidationWatcher triggers → daemon runs quick validation
-3. DiagnosticManager pushes failures to Problems panel
-4. Red squiggle appears on the reference script
-5. Right-click → "Reproduce failure (seed: 4242)"
-6. Terminal opens with exact repro info
-7. Fix the bug → save → squiggle clears
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   gpuemu CLI     │     │   Python Client  │     │  VS Code Ext     │
+│   (Rust)         │     │   (gpuemu-py)    │     │  (TypeScript)    │
+└────────┬─────────┘     └────────┬─────────┘     └────────┬─────────┘
+         │                        │                        │
+         └────────────────────────┼────────────────────────┘
+                                  │ IPC (NNG/Unix sockets)
+                                  ▼
+                    ┌─────────────────────────────┐
+                    │      gpuemu-daemon          │
+                    │  ├── Validation engine      │
+                    │  ├── Fuzz test generator    │
+                    │  ├── Artifact analyzer      │
+                    │  └── Failure storage (sled) │
+                    └─────────────────────────────┘
 ```
 
-### Extension Settings
+---
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `gpuemu.binaryPath` | auto-detect | Path to the `gpuemu` CLI binary |
-| `gpuemu.autoStartDaemon` | `true` | Auto-start daemon when `gpuemu.toml` is present |
-| `gpuemu.showStatusBar` | `true` | Show daemon status in the status bar |
+## What gpuemu is NOT
 
-## Running Tests
+- **Not a cycle-accurate GPU emulator** — We validate correctness, not performance timing.
+- **Not a replacement for real hardware** — Use gpuemu for development; benchmark on real GPUs.
+- **Not a training framework** — We test kernels, not models.
 
-```bash
-# Rust tests (58 tests)
-cargo test
+---
 
-# Python smoke tests (11 tests)
-cd gpuemu-py && PYTHONPATH=. pytest tests/test_smoke.py -v
+## Framework Support
 
-# TypeScript compilation check
-cd vscode-gpuemu && npx -p typescript tsc --noEmit
-```
+| Framework | Status | Install |
+|-----------|--------|---------|
+| PyTorch | Stable | `pip install gpuemu-py[torch]` |
+| JAX | Stable | `pip install gpuemu-py[jax]` |
+| TensorFlow | Stable | `pip install gpuemu-py[tensorflow]` |
+| Raw CUDA/Triton | Stable | `pip install gpuemu-py` |
 
-## Platform goals
+---
 
-- **Linux**: Primary development and CI target.
-- **macOS**: Core validation workflow runs without GPUs, where toolchains allow.
-- **Windows**: Not a current target; may be considered after Linux/macOS parity.
+## Documentation
 
-## Repository map
+Full documentation is available at **[docs.skelfresearch.com/gpuemu](https://docs.skelfresearch.com/gpuemu)**
 
-- `crates/gpuemu-daemon/` — Rust IPC daemon (validation, fuzzing, storage)
-- `crates/gpuemu-cli/` — Rust CLI binary
-- `crates/gpuemu-common/` — Shared types, protocol, RNG, config
-- `gpuemu-py/` — Python client package with framework adapters
-- `vscode-gpuemu/` — VS Code extension (pseudo-LSP)
-- `docs/` — Architecture, configuration, integration guides
+- [Getting Started](https://docs.skelfresearch.com/gpuemu/quickstart)
+- [Configuration Reference](https://docs.skelfresearch.com/gpuemu/configuration)
+- [Integration Guides](https://docs.skelfresearch.com/gpuemu/integrations)
+- [Validation Policies](https://docs.skelfresearch.com/gpuemu/validation)
+- [Architecture Deep Dive](https://docs.skelfresearch.com/gpuemu/architecture)
 
-**Key docs:**
-- **[docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)** — Complete PyTorch, JAX, and TensorFlow integration guide with API reference
-- `docs/ARCHITECTURE.md` — Component design and data flow
-- `docs/CONFIGURATION.md` — TOML configuration schema reference
-- `docs/VALIDATION.md` — Validation taxonomy and policies
+---
+
+## Platform Support
+
+| Platform | Status |
+|----------|--------|
+| Linux | Primary target |
+| macOS | Fully supported |
+| Windows | Planned |
+
+---
 
 ## Contributing
 
-If you want to contribute, start with `docs/PROJECT_SCOPE.md` and `docs/ARCHITECTURE.md`, then propose changes as small, reviewable steps.
+We welcome contributions. See our [Contributing Guide](https://docs.skelfresearch.com/gpuemu/contributing) for details.
+
+```bash
+# Run tests
+cargo test                    # Rust (58 tests)
+cd gpuemu-py && pytest -v     # Python (11 tests)
+```
+
+---
+
+## License
+
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE) at your option.
+
+---
+
+<p align="center">
+  <sub>Built with care by the <a href="https://skelfresearch.com">Skelf Research</a> team</sub>
+</p>

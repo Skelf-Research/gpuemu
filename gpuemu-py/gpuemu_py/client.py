@@ -62,6 +62,10 @@ class ValidationResult:
     timestamp: int
     duration_ms: int
     repro_info: Optional[ReproductionInfo] = None
+    # Element-wise error distribution (float outputs only): keys include
+    # count, num_exceeding, max_abs, mean_abs, p50_abs, p90_abs, p99_abs,
+    # max_rel, mean_rel, max_ulp, mean_ulp.
+    error_stats: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ValidationResult":
@@ -80,6 +84,7 @@ class ValidationResult:
             timestamp=data.get("timestamp", 0),
             duration_ms=data.get("duration_ms", 0),
             repro_info=repro,
+            error_stats=data.get("error_stats"),
         )
 
 
@@ -177,6 +182,7 @@ class Client:
         self.socket_path = socket_path
         self.timeout_ms = timeout_ms
         self._socket = None
+        self._version_checked = False
 
     def _ensure_connected(self):
         """Ensure we have a connection to the daemon."""
@@ -186,30 +192,31 @@ class Client:
             )
 
         if self._socket is None:
-            self._socket = pynng.Req0()
-            self._socket.recv_timeout = self.timeout_ms
-            self._socket.send_timeout = self.timeout_ms
+            sock = pynng.Req0()
+            sock.recv_timeout = self.timeout_ms
+            sock.send_timeout = self.timeout_ms
 
             socket_url = f"ipc://{self.socket_path}"
             try:
-                self._socket.dial(socket_url)
+                sock.dial(socket_url)
             except pynng.exceptions.ConnectionRefused:
                 raise ClientError(
                     f"Cannot connect to daemon at {self.socket_path}. "
                     "Is the daemon running? Start it with: gpuemu daemon start"
                 )
-
-            self._check_protocol_version()
+            # Set the socket BEFORE the version check so the check's own request
+            # reuses it (the guard prevents re-entrant reconnect/recursion).
+            self._socket = sock
+            if not self._version_checked:
+                self._version_checked = True
+                self._check_protocol_version()
 
         return self._socket
 
     def _check_protocol_version(self):
         """Verify daemon protocol version is compatible (called once on connect)."""
         try:
-            saved = self._socket
-            self._socket = None
             ping_resp = self._send_request({"type": "Ping"})
-            self._socket = saved
             daemon_pv = ping_resp.get("protocol_version", 0)
             if daemon_pv != PROTOCOL_VERSION:
                 raise ClientError(
@@ -227,6 +234,7 @@ class Client:
         if self._socket is not None:
             self._socket.close()
             self._socket = None
+        self._version_checked = False
 
     def __enter__(self):
         return self
@@ -544,6 +552,39 @@ class Client:
         else:
             raise ClientError(f"Unexpected response: {response}")
 
+    # =========================================================================
+    # Phase 3: Artifact Inspection
+    # =========================================================================
+
+    def lint_kernel(
+        self, ptx_content: str, kernel_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Lint PTX through the daemon's artifact analyzer.
+
+        Extracts static metrics (registers, spills, local memory, instruction mix)
+        and checks them against configured thresholds. If no kernel is registered,
+        the daemon detects the kernel name from the PTX and uses default thresholds.
+
+        Args:
+            ptx_content: Raw PTX assembly text.
+            kernel_name: Optional kernel name to lint (else all / detected).
+
+        Returns:
+            List of lint-result dicts, each with keys: kernel_name, passed,
+            metrics (register_count, spill_count, ...), violations, timestamp.
+        """
+        request = {
+            "type": "LintKernel",
+            "kernel_name": kernel_name,
+            "ptx_content": ptx_content,
+        }
+        response = self._send_request(request)
+        if response.get("type") == "LintResults":
+            return response.get("results", [])
+        elif response.get("type") == "Error":
+            raise ClientError(response.get("message", "Unknown error"))
+        raise ClientError(f"Unexpected response: {response}")
+
     @staticmethod
     def _encode_tensor(arr: np.ndarray) -> Dict[str, Any]:
         """Encode a numpy array for transmission."""
@@ -672,7 +713,12 @@ class Client:
             raise ClientError(f"Unexpected response: {response}")
 
     def get_test_batch(
-        self, op_name: str, count: int = 10, seed: Optional[int] = None
+        self,
+        op_name: str,
+        count: int = 10,
+        seed: Optional[int] = None,
+        op_schema: Optional[Dict[str, Any]] = None,
+        dtypes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Get a batch of test cases from the daemon.
 
@@ -680,6 +726,11 @@ class Client:
             op_name: Name of the op.
             count: Number of test cases to generate.
             seed: Master seed. Auto-generated if None.
+            op_schema: Optional operator-aware shape schema. When provided, the
+                daemon generates per-input shapes from shared symbolic dims
+                (e.g. matmul A[M,K]/B[K,N]) instead of one shape for all inputs.
+                Shape: {"name", "dims": [{"name","candidates"}],
+                        "inputs": [{"name","dims"}], "output": {"name","dims"}}.
 
         Returns:
             List of test case dicts (same format as get_test_case).
@@ -695,9 +746,11 @@ class Client:
                 "hidden_dims": [256, 512],
                 "edge_cases": [[1], [1, 1]],
             },
-            "dtypes": ["float32", "float16"],
+            "dtypes": dtypes or ["float32", "float16"],
             "layouts": ["Contiguous", "Strided"],
         }
+        if op_schema is not None:
+            fuzz_config["op_schema"] = op_schema
 
         request = {
             "type": "GetTestBatch",
@@ -784,6 +837,8 @@ class Client:
         iterations: int = 100,
         seed: Optional[int] = None,
         fail_fast: bool = False,
+        op_schema: Optional[Dict[str, Any]] = None,
+        dtypes: Optional[List[str]] = None,
     ) -> FuzzResults:
         """Fuzz an op using client-side execution (THE RECOMMENDED DROP-IN PATH).
 
@@ -799,6 +854,9 @@ class Client:
             iterations: Number of test cases to try.
             seed: Master seed. Auto-generated if None.
             fail_fast: Stop on first failure.
+            op_schema: Optional operator-aware shape schema (see get_test_batch).
+                Use for ops whose inputs have different but linked shapes
+                (matmul, attention) so fuzzing covers the real operator domain.
 
         Returns:
             FuzzResults with pass/fail counts and list of failures.
@@ -815,19 +873,9 @@ class Client:
         if seed is None:
             seed = int(time.time_ns()) & 0xFFFFFFFFFFFFFFFF
 
-        fuzz_config = {
-            "seed": seed,
-            "shape_options": {
-                "batch_sizes": [1, 2, 4, 8, 16, 32],
-                "seq_lengths": [64, 128, 256, 512, 1024],
-                "hidden_dims": [256, 512, 768, 1024],
-                "edge_cases": [[1], [1, 1], [1, 1, 1]],
-            },
-            "dtypes": ["float32", "float16"],
-            "layouts": ["Contiguous", "Strided", "Transposed"],
-        }
-
-        cases = self.get_test_batch(op_name, count=iterations, seed=seed)
+        cases = self.get_test_batch(
+            op_name, count=iterations, seed=seed, op_schema=op_schema, dtypes=dtypes
+        )
         total = 0
         passed = 0
         failed = 0

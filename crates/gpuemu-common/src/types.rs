@@ -3,6 +3,56 @@
 use rkyv::{Archive, Deserialize, Serialize};
 use serde::{Deserialize as SerdeDeserialize, Serialize as SerdeSerialize};
 
+/// Serde helpers that represent byte buffers as base64 strings in JSON.
+///
+/// The protocol exchanges tensor bytes as base64 (compact, and what the Python
+/// client encodes/decodes). serde's default for `Vec<u8>` is a JSON number
+/// array — so these `#[serde(with = ...)]` adapters keep both sides in agreement.
+/// Only affects serde (the JSON protocol); rkyv archiving is unaffected.
+pub(crate) mod serde_b64 {
+    use base64::Engine;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let s = String::deserialize(d)?;
+        base64::engine::general_purpose::STANDARD
+            .decode(s.as_bytes())
+            .map_err(serde::de::Error::custom)
+    }
+
+    /// Variant for `Option<Vec<u8>>` fields.
+    pub mod opt {
+        use base64::Engine;
+        use serde::{Deserialize, Deserializer, Serializer};
+
+        pub fn serialize<S: Serializer>(bytes: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
+            match bytes {
+                Some(b) => {
+                    s.serialize_some(&base64::engine::general_purpose::STANDARD.encode(b))
+                }
+                None => s.serialize_none(),
+            }
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            d: D,
+        ) -> Result<Option<Vec<u8>>, D::Error> {
+            let opt = Option::<String>::deserialize(d)?;
+            match opt {
+                Some(s) => base64::engine::general_purpose::STANDARD
+                    .decode(s.as_bytes())
+                    .map(Some)
+                    .map_err(serde::de::Error::custom),
+                None => Ok(None),
+            }
+        }
+    }
+}
+
 /// Supported data types for tensor validation.
 #[derive(
     Debug,
@@ -128,7 +178,8 @@ pub struct TensorData {
     pub strides: Vec<usize>,
     /// Data type.
     pub dtype: DType,
-    /// Raw bytes of tensor data.
+    /// Raw bytes of tensor data (base64 in the JSON protocol).
+    #[serde(with = "serde_b64")]
     pub data: Vec<u8>,
 }
 
@@ -211,6 +262,36 @@ pub enum FailureKind {
     ReferenceError,
 }
 
+/// Distribution of element-wise error between an output and its reference.
+///
+/// Captures the full error picture (not just the first failure) so numerical
+/// studies — e.g. mixed-precision tolerance calibration — have raw material.
+/// Populated for float dtypes; `None` for integer/bool outputs.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct ErrorStats {
+    /// Number of elements compared.
+    pub count: usize,
+    /// Number of elements whose absolute error exceeded the tolerance.
+    pub num_exceeding: usize,
+    /// Maximum absolute error.
+    pub max_abs: f64,
+    /// Mean absolute error.
+    pub mean_abs: f64,
+    /// 50th / 90th / 99th percentile absolute error.
+    pub p50_abs: f64,
+    pub p90_abs: f64,
+    pub p99_abs: f64,
+    /// Maximum relative error (|o-r| / |r|, skipping r == 0).
+    pub max_rel: f64,
+    /// Mean relative error over elements with r != 0.
+    pub mean_rel: f64,
+    /// Maximum ULP (units-in-the-last-place) distance, in the output dtype.
+    pub max_ulp: u64,
+    /// Mean ULP distance.
+    pub mean_ulp: f64,
+}
+
 /// Result of a validation run.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
@@ -233,6 +314,9 @@ pub struct ValidationResult {
     pub duration_ms: u64,
     /// Full reproduction info (populated on failures during fuzzing).
     pub repro_info: Option<ReproductionInfo>,
+    /// Element-wise error distribution (float outputs only).
+    #[serde(default)]
+    pub error_stats: Option<ErrorStats>,
 }
 
 // =============================================================================
@@ -308,18 +392,123 @@ impl Default for ShapeOptions {
     }
 }
 
+/// A symbolic tensor dimension with the concrete sizes the fuzzer may sample.
+///
+/// Authors include boundary/prime/edge values (e.g. `1`, `2`, `7`, `127`, `256`)
+/// so a single dim covers the cases that expose tail and stride bugs.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct DimSpec {
+    /// Symbolic name of the dimension (e.g. "M", "K", "N", "S").
+    pub name: String,
+    /// Concrete candidate sizes to sample from.
+    pub candidates: Vec<usize>,
+}
+
+/// One tensor's shape expressed as an ordered list of dimension names.
+///
+/// The names reference [`DimSpec`] entries in the owning [`OpSchema`], so two
+/// tensors that share a dim name (e.g. matmul's `K`) always get the same size.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct TensorSchema {
+    /// Tensor name; for inputs this must match the op's `input_names`.
+    pub name: String,
+    /// Ordered dimension names that form this tensor's shape.
+    pub dims: Vec<String>,
+}
+
+/// An operator-aware shape schema: shared symbolic dims plus per-tensor shapes.
+///
+/// This lets the fuzzer cover real operator domains where inputs have *different*
+/// but *linked* shapes (matmul `A[M,K] · B[K,N]`, attention `Q,K,V[B,H,S,D]`),
+/// instead of forcing one shape onto every input.
+#[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
+#[archive(check_bytes)]
+pub struct OpSchema {
+    /// Schema name (usually the op name).
+    pub name: String,
+    /// Symbolic dimensions shared across the tensors below.
+    pub dims: Vec<DimSpec>,
+    /// Input tensor shapes, keyed by name.
+    pub inputs: Vec<TensorSchema>,
+    /// Optional output tensor shape (used as the representative shape for repro).
+    #[serde(default)]
+    pub output: Option<TensorSchema>,
+}
+
+impl OpSchema {
+    /// Built-in schemas for common ops. Candidate sizes deliberately mix small,
+    /// prime, power-of-two, and off-by-one values to stress boundaries.
+    pub fn builtin(name: &str) -> Option<Self> {
+        let dim = |n: &str, c: Vec<usize>| DimSpec {
+            name: n.to_string(),
+            candidates: c,
+        };
+        let t = |n: &str, dims: &[&str]| TensorSchema {
+            name: n.to_string(),
+            dims: dims.iter().map(|s| s.to_string()).collect(),
+        };
+        match name {
+            // C[M,N] = A[M,K] · B[K,N]
+            "matmul" => Some(OpSchema {
+                name: "matmul".to_string(),
+                dims: vec![
+                    dim("M", vec![1, 2, 7, 31, 128, 257]),
+                    dim("K", vec![1, 3, 16, 127, 256]),
+                    dim("N", vec![1, 2, 15, 64, 255]),
+                ],
+                inputs: vec![t("a", &["M", "K"]), t("b", &["K", "N"])],
+                output: Some(t("out", &["M", "N"])),
+            }),
+            // Scaled dot-product attention over Q,K,V of [B,H,S,D].
+            "attention" => Some(OpSchema {
+                name: "attention".to_string(),
+                dims: vec![
+                    dim("B", vec![1, 2, 5]),
+                    dim("H", vec![1, 3, 8]),
+                    dim("S", vec![1, 2, 17, 128, 257]),
+                    dim("D", vec![8, 16, 64, 65]),
+                ],
+                inputs: vec![
+                    t("q", &["B", "H", "S", "D"]),
+                    t("k", &["B", "H", "S", "D"]),
+                    t("v", &["B", "H", "S", "D"]),
+                ],
+                output: Some(t("out", &["B", "H", "S", "D"])),
+            }),
+            // Elementwise / reduction over a single tensor [B,S,H].
+            "elementwise" => Some(OpSchema {
+                name: "elementwise".to_string(),
+                dims: vec![
+                    dim("B", vec![1, 2, 8, 33]),
+                    dim("S", vec![1, 7, 128, 513]),
+                    dim("H", vec![1, 3, 256, 1025]),
+                ],
+                inputs: vec![t("input", &["B", "S", "H"])],
+                output: Some(t("out", &["B", "S", "H"])),
+            }),
+            _ => None,
+        }
+    }
+}
+
 /// Configuration for fuzz testing.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
 pub struct FuzzConfig {
     /// Master seed for all random decisions.
     pub seed: u64,
-    /// Shape options for fuzzing.
+    /// Shape options for fuzzing (legacy rank-3 generation when no `op_schema`).
     pub shape_options: ShapeOptions,
     /// Data types to fuzz.
     pub dtypes: Vec<DType>,
     /// Layout types to fuzz.
     pub layouts: Vec<LayoutType>,
+    /// Optional operator-aware shape schema. When present, the fuzzer generates
+    /// per-input shapes from shared dims instead of one shape for all inputs.
+    #[serde(default)]
+    pub op_schema: Option<OpSchema>,
 }
 
 impl Default for FuzzConfig {
@@ -333,6 +522,7 @@ impl Default for FuzzConfig {
                 LayoutType::Strided,
                 LayoutType::Transposed,
             ],
+            op_schema: None,
         }
     }
 }
@@ -366,6 +556,7 @@ pub struct ReproductionInfo {
     /// Layout type used.
     pub layout: LayoutType,
     /// Compressed input data snapshot (optional, for exact reproduction).
+    #[serde(with = "serde_b64::opt", default)]
     pub input_snapshot: Option<Vec<u8>>,
 }
 
@@ -391,6 +582,7 @@ impl ValidationResult {
                 .as_secs(),
             duration_ms,
             repro_info: None,
+            error_stats: None,
         }
     }
 
@@ -414,6 +606,7 @@ impl ValidationResult {
                 .as_secs(),
             duration_ms,
             repro_info: None,
+            error_stats: None,
         }
     }
 
@@ -438,12 +631,19 @@ impl ValidationResult {
                 .as_secs(),
             duration_ms,
             repro_info: Some(repro_info),
+            error_stats: None,
         }
     }
 
     /// Add reproduction info to an existing result.
     pub fn with_repro_info(mut self, repro_info: ReproductionInfo) -> Self {
         self.repro_info = Some(repro_info);
+        self
+    }
+
+    /// Attach element-wise error statistics to an existing result.
+    pub fn with_error_stats(mut self, error_stats: Option<ErrorStats>) -> Self {
+        self.error_stats = error_stats;
         self
     }
 }
@@ -699,5 +899,55 @@ mod tests {
         assert_eq!(DType::Float32.size_bytes(), 4);
         assert_eq!(DType::Float16.size_bytes(), 2);
         assert_eq!(DType::Float64.size_bytes(), 8);
+    }
+
+    #[test]
+    fn test_fuzzconfig_json_backcompat_without_op_schema() {
+        // Clients on the old protocol omit op_schema; it must default to None.
+        let json = r#"{
+            "seed": 7,
+            "shape_options": {"batch_sizes": [1], "seq_lengths": [8],
+                              "hidden_dims": [16], "edge_cases": []},
+            "dtypes": ["float32"],
+            "layouts": ["Contiguous"]
+        }"#;
+        let cfg: FuzzConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.seed, 7);
+        assert!(cfg.op_schema.is_none());
+    }
+
+    #[test]
+    fn test_fuzzconfig_json_with_op_schema() {
+        // The exact JSON shape the Python client emits for op_schema.
+        let json = r#"{
+            "seed": 1,
+            "shape_options": {"batch_sizes": [1], "seq_lengths": [8],
+                              "hidden_dims": [16], "edge_cases": []},
+            "dtypes": ["float16"],
+            "layouts": ["Contiguous"],
+            "op_schema": {
+                "name": "matmul",
+                "dims": [{"name": "M", "candidates": [2, 4]},
+                         {"name": "K", "candidates": [3]},
+                         {"name": "N", "candidates": [5, 7]}],
+                "inputs": [{"name": "a", "dims": ["M", "K"]},
+                           {"name": "b", "dims": ["K", "N"]}],
+                "output": {"name": "out", "dims": ["M", "N"]}
+            }
+        }"#;
+        let cfg: FuzzConfig = serde_json::from_str(json).unwrap();
+        let schema = cfg.op_schema.expect("schema present");
+        assert_eq!(schema.name, "matmul");
+        assert_eq!(schema.dims.len(), 3);
+        assert_eq!(schema.inputs[1].dims, vec!["K".to_string(), "N".to_string()]);
+        assert_eq!(schema.output.unwrap().dims, vec!["M".to_string(), "N".to_string()]);
+    }
+
+    #[test]
+    fn test_builtin_schemas_present() {
+        for name in ["matmul", "attention", "elementwise"] {
+            assert!(OpSchema::builtin(name).is_some(), "missing builtin {name}");
+        }
+        assert!(OpSchema::builtin("nope").is_none());
     }
 }

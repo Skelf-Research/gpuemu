@@ -34,6 +34,20 @@ fn primary_input_name(op: &gpuemu_common::config::OpConfig) -> &str {
     op.input_names.first().map(String::as_str).unwrap_or("input")
 }
 
+/// Build a validator whose tolerances are the global validation tolerances
+/// overlaid with the op's own tolerances (op-specific values win). Without this,
+/// per-op `[ops.tolerances]` from gpuemu.toml are silently ignored.
+fn op_validator(
+    base: &gpuemu_common::config::ValidationConfig,
+    op: &gpuemu_common::config::OpConfig,
+) -> Validator {
+    let mut cfg = base.clone();
+    for (dtype, tol) in &op.tolerances {
+        cfg.tolerances.insert(dtype.clone(), *tol);
+    }
+    Validator::new(cfg)
+}
+
 fn available_ops_message(config: &GpuemuConfig) -> String {
     if config.ops.is_empty() {
         "No ops are configured in gpuemu.toml".to_string()
@@ -191,9 +205,8 @@ pub struct ServerState {
     pub storage: Storage,
     /// Reference script executor.
     pub executor: Executor,
-    /// Validator for comparing outputs.
-    pub validator: Validator,
-    /// Configuration.
+    /// Configuration. Handlers build a per-op [`Validator`] via `op_validator()`
+    /// so `[ops.tolerances]` are applied on top of `config.validation`.
     pub config: GpuemuConfig,
     /// Server start time.
     pub start_time: Instant,
@@ -207,12 +220,10 @@ impl ServerState {
     /// Create new server state.
     pub fn new(storage: Storage, config: GpuemuConfig) -> Self {
         let executor = Executor::new(ExecutorConfig::default());
-        let validator = Validator::new(config.validation.clone());
 
         Self {
             storage,
             executor,
-            validator,
             config,
             start_time: Instant::now(),
             last_ci_summary: None,
@@ -399,10 +410,9 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 .unwrap_or_default()
                 .as_nanos() as u64;
 
-            // Validate
+            // Validate (with op-specific tolerances overlaid on the global ones)
             let invariants = Some(&op_config.invariants);
-            let result = state_read
-                .validator
+            let result = op_validator(&state_read.config.validation, op_config)
                 .validate(&op_name, &output, &reference, seed, invariants);
             let mut result = result;
             enforce_shape_preserved(&mut result, &output, &inputs, op_config);
@@ -667,9 +677,9 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                     }
                 };
 
-                // Validate
+                // Validate (op tolerances overlaid on the global ones)
                 let invariants = Some(&op_config.invariants);
-                let mut result = state_read.validator.validate(
+                let mut result = op_validator(&state_read.config.validation, &op_config).validate(
                     &op_name,
                     &output,
                     &reference,
@@ -869,7 +879,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                         .cloned()
                                         .unwrap_or_else(|| reference.clone());
                                     let invariants = Some(&op_config.invariants);
-                                    let result = state_read.validator.validate(
+                                    let result = op_validator(&state_read.config.validation, &op_config).validate(
                                         &failure.op_name,
                                         &output,
                                         &reference,
@@ -943,7 +953,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                     let primary = primary_input_name(&op_config);
                                     let output = scaled_inputs.get(primary).cloned().unwrap_or_else(|| reference.clone());
                                     let invariants = Some(&op_config.invariants);
-                                    let result = state_read.validator.validate(
+                                    let result = op_validator(&state_read.config.validation, &op_config).validate(
                                         &failure.op_name,
                                         &output,
                                         &reference,
@@ -1067,7 +1077,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 }
             }
 
-            Response::LintResults(results)
+            Response::LintResults { results }
         }
 
         Request::StoreArtifact { kernel_name: _, metrics } => {
@@ -1175,7 +1185,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
 
             let state_read = state.read().await;
             match state_read.storage.list_artifacts() {
-                Ok(artifacts) => Response::ArtifactList(artifacts),
+                Ok(artifacts) => Response::ArtifactList { artifacts },
                 Err(e) => Response::Error {
                     code: ErrorCode::InternalError,
                     message: format!("Failed to list artifacts: {}", e),
@@ -1289,7 +1299,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                     };
 
                     let invariants = Some(&op.invariants);
-                    let mut result = state_read.validator.validate(
+                    let mut result = op_validator(&state_read.config.validation, op).validate(
                         &op.name,
                         &output,
                         &reference,
@@ -1511,9 +1521,9 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 }
             };
 
-            // Validate submitted output against reference
+            // Validate submitted output against reference (op tolerances overlaid)
             let invariants = Some(&op_config.invariants);
-            let mut result = state_read.validator.validate(
+            let mut result = op_validator(&state_read.config.validation, op_config).validate(
                 &op_name,
                 &output,
                 &reference,

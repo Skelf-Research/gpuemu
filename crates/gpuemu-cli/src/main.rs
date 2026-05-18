@@ -542,6 +542,7 @@ fn handle_test(quick: bool, thorough: bool, seed: Option<u64>) -> Result<()> {
             ),
             layouts: vec![LayoutType::Contiguous, LayoutType::Strided],
             op_schema: None,
+            value_distribution: gpuemu_common::types::ValueDistribution::Uniform,
         };
 
         let request = Request::FuzzOp {
@@ -714,6 +715,7 @@ fn handle_fuzz(
             dtypes,
             layouts,
             op_schema: None,
+            value_distribution: gpuemu_common::types::ValueDistribution::Uniform,
         };
 
         let request = Request::FuzzOp {

@@ -3,6 +3,7 @@
 use gpuemu_common::rng::SeededRng;
 use gpuemu_common::types::{
     DType, FuzzConfig, LayoutType, OpSchema, ReproductionInfo, TensorData, TensorSchema,
+    ValueDistribution,
 };
 use std::collections::HashMap;
 use tracing::warn;
@@ -384,7 +385,7 @@ impl Fuzzer {
 
     /// Generate random data for a tensor.
     fn generate_random_data(&self, rng: &mut SeededRng, numel: usize, dtype: DType) -> Vec<u8> {
-        generate_data_from_seed(rng, numel, dtype)
+        generate_data_from_seed(rng, numel, dtype, self.config.value_distribution)
     }
 
     /// Get the FuzzConfig.
@@ -428,13 +429,24 @@ fn regenerate_inputs_from_seed(
     let shape = repro.shape.clone();
     let dtype = repro.dtype;
     let strides = repro.strides.clone();
+    // Preserve the value distribution from the original fuzz config when
+    // regenerating-from-seed, so adversarial / NaN-injected runs reproduce.
+    let vd = repro
+        .fuzz_config
+        .as_ref()
+        .map(|c| c.value_distribution)
+        .unwrap_or(ValueDistribution::Uniform);
 
     let mut inputs = HashMap::new();
     let data_rng = rng.derive("data");
     for (i, name) in input_names.iter().enumerate() {
         let numel: usize = shape.iter().product();
-        let data =
-            generate_data_from_seed(&mut data_rng.derive(&format!("input_{}", i)), numel, dtype);
+        let data = generate_data_from_seed(
+            &mut data_rng.derive(&format!("input_{}", i)),
+            numel,
+            dtype,
+            vd,
+        );
         let input = TensorData {
             shape: shape.clone(),
             strides: strides.clone(),
@@ -446,13 +458,59 @@ fn regenerate_inputs_from_seed(
     inputs
 }
 
+/// Pick the source float value for a single element under the active
+/// value distribution. Returns f64 for downstream dtype casting.
+fn sample_float_value(rng: &mut SeededRng, vd: ValueDistribution) -> f64 {
+    match vd {
+        ValueDistribution::Uniform => (rng.gen_f64() * 2.0 - 1.0) * 10.0,
+        ValueDistribution::NaNInjected => {
+            // ~5% special values; the rest uniform.
+            if rng.gen_bool(0.05) {
+                let r = rng.gen_range(0..4);
+                match r {
+                    0 => f64::NAN,
+                    1 => f64::INFINITY,
+                    2 => f64::NEG_INFINITY,
+                    _ => 0.0,
+                }
+            } else {
+                (rng.gen_f64() * 2.0 - 1.0) * 10.0
+            }
+        }
+        ValueDistribution::Adversarial => {
+            // 5 equal-weight buckets: zero, subnormal-ish, large finite,
+            // wide-uniform, non-finite.
+            let bucket = rng.gen_range(0..5);
+            match bucket {
+                0 => 0.0,
+                1 => 1.0e-30 * (rng.gen_f64() - 0.5),
+                2 => 1.0e30 * (rng.gen_f64() - 0.5),
+                3 => (rng.gen_f64() * 2.0 - 1.0) * 1.0e3,
+                _ => {
+                    let r = rng.gen_range(0..3);
+                    match r {
+                        0 => f64::NAN,
+                        1 => f64::INFINITY,
+                        _ => f64::NEG_INFINITY,
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Generate tensor data from a seed (helper for regeneration).
-fn generate_data_from_seed(rng: &mut SeededRng, numel: usize, dtype: DType) -> Vec<u8> {
+fn generate_data_from_seed(
+    rng: &mut SeededRng,
+    numel: usize,
+    dtype: DType,
+    value_distribution: ValueDistribution,
+) -> Vec<u8> {
     match dtype {
         DType::Float32 => {
             let mut data = vec![0u8; numel * 4];
             for i in 0..numel {
-                let val = ((rng.gen_f64() * 2.0 - 1.0) * 10.0) as f32;
+                let val = sample_float_value(rng, value_distribution) as f32;
                 let bytes = val.to_le_bytes();
                 data[i * 4..i * 4 + 4].copy_from_slice(&bytes);
             }
@@ -461,7 +519,7 @@ fn generate_data_from_seed(rng: &mut SeededRng, numel: usize, dtype: DType) -> V
         DType::Float64 => {
             let mut data = vec![0u8; numel * 8];
             for i in 0..numel {
-                let val: f64 = (rng.gen_f64() * 2.0 - 1.0) * 10.0;
+                let val = sample_float_value(rng, value_distribution);
                 let bytes = val.to_le_bytes();
                 data[i * 8..i * 8 + 8].copy_from_slice(&bytes);
             }
@@ -470,7 +528,7 @@ fn generate_data_from_seed(rng: &mut SeededRng, numel: usize, dtype: DType) -> V
         DType::Float16 | DType::BFloat16 => {
             let mut data = vec![0u8; numel * 2];
             for i in 0..numel {
-                let val = ((rng.gen_f64() * 2.0 - 1.0) * 10.0) as f32;
+                let val = sample_float_value(rng, value_distribution) as f32;
                 let bits = val.to_bits();
                 let sign = (bits >> 16) & 0x8000;
                 let exp = ((bits >> 23) & 0xFF) as i32 - 127 + 15;

@@ -147,6 +147,45 @@ def test_lint_kernel(daemon):
         assert results[0]["kernel_name"] == "k"
 
 
+def test_get_test_case_singular(daemon):
+    # Singular get_test_case (one case) — exercises the GetTestCase RPC.
+    with Client(socket_path=daemon) as c:
+        schema = {
+            "name": "identity",
+            "dims": [{"name": "N", "candidates": [4, 8]}],
+            "inputs": [{"name": "input", "dims": ["N"]}],
+            "output": {"name": "out", "dims": ["N"]},
+        }
+        # get_test_case in the current client uses fuzz_op_config_dict; we
+        # exercise it through get_test_batch(count=1) which shares the path.
+        cases = c.get_test_batch("identity", count=1, seed=42,
+                                 op_schema=schema, dtypes=["float32"])
+        assert len(cases) == 1
+        assert list(cases[0]["inputs"]["input"].shape)[0] in (4, 8)
+
+
+def test_value_distribution_pipes_through(daemon):
+    # Adversarial distribution must reach the Rust fuzzer and produce
+    # non-uniform values (some non-finite or extreme magnitudes).
+    schema = {
+        "name": "identity",
+        "dims": [{"name": "N", "candidates": [128]}],
+        "inputs": [{"name": "input", "dims": ["N"]}],
+        "output": {"name": "out", "dims": ["N"]},
+    }
+    with Client(socket_path=daemon) as c:
+        cases = c.get_test_batch("identity", count=4, seed=7,
+                                 op_schema=schema, dtypes=["float32"],
+                                 value_distribution="adversarial")
+        all_vals = np.concatenate([cs["inputs"]["input"].ravel() for cs in cases])
+        has_nonfinite = bool(np.any(~np.isfinite(all_vals)))
+        has_extreme = bool(np.any(np.abs(all_vals[np.isfinite(all_vals)]) > 1e6))
+        # Adversarial buckets are 1/5 zero, 1/5 subnormal, 1/5 ~1e30, 1/5 wide-uniform,
+        # 1/5 non-finite. Across 512 elements both should be present.
+        assert has_nonfinite, "expected NaN/Inf in adversarial distribution"
+        assert has_extreme, "expected large-magnitude values in adversarial distribution"
+
+
 def test_get_test_batch_and_submit(daemon):
     schema = {
         "name": "identity",

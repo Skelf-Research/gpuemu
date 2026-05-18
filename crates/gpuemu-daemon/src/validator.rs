@@ -839,6 +839,12 @@ impl Validator {
             return None;
         }
         let tol = self.tolerance_for(output.dtype);
+        // bytemuck's cast_slice requires the buffer's *pointer* to be aligned
+        // to the target type, which empty Vec<u8>::new() does not guarantee.
+        // For empty tensors, return zero-stats directly.
+        if output.data.is_empty() {
+            return Some(StatsAccum::with_capacity(0, tol).finish());
+        }
         match output.dtype {
             DType::Float32 => {
                 let o = bytemuck_cast_slice::<f32>(&output.data);
@@ -1004,6 +1010,39 @@ mod tests {
         let stats = result.error_stats.expect("stats present on pass");
         assert_eq!(stats.count, 3);
         assert_eq!(stats.max_abs, 0.0);
+    }
+
+    #[test]
+    fn test_error_stats_empty() {
+        let v = Validator::new(ValidationConfig::default());
+        let out = make_f32_tensor(vec![0], vec![]);
+        let r = make_f32_tensor(vec![0], vec![]);
+        let s = v.compute_error_stats(&out, &r).expect("empty stats");
+        assert_eq!(s.count, 0);
+        assert_eq!(s.max_abs, 0.0);
+        assert_eq!(s.num_exceeding, 0);
+    }
+
+    #[test]
+    fn test_error_stats_all_nan() {
+        // When the kernel returns all-NaN, |o - r| is NaN per element; the
+        // stats path coerces NaN to +inf so max_abs is finite-infinite and
+        // num_exceeding still counts. mean_rel is over r != 0 only.
+        let v = Validator::new(ValidationConfig::default());
+        let out = make_f32_tensor(vec![3], vec![f32::NAN, f32::NAN, f32::NAN]);
+        let r = make_f32_tensor(vec![3], vec![1.0, 2.0, 3.0]);
+        let s = v.compute_error_stats(&out, &r).expect("nan stats");
+        assert_eq!(s.count, 3);
+        assert!(s.max_abs.is_infinite());
+        assert_eq!(s.num_exceeding, 3);
+    }
+
+    #[test]
+    fn test_value_distribution_default_is_uniform() {
+        // FuzzConfig default keeps Uniform — preserves existing run determinism.
+        let c = gpuemu_common::types::FuzzConfig::default();
+        assert!(matches!(c.value_distribution,
+                         gpuemu_common::types::ValueDistribution::Uniform));
     }
 
     #[test]

@@ -5,7 +5,7 @@
 <h1 align="center">gpuemu</h1>
 
 <p align="center">
-  <strong>Ship GPU kernels with confidence — no GPU required.</strong>
+  <strong>Catch silently-wrong GPU kernels before they reach production.</strong>
 </p>
 
 <p align="center">
@@ -19,47 +19,70 @@
 <p align="center">
   <a href="https://docs.skelfresearch.com/gpuemu">Documentation</a> •
   <a href="https://docs.skelfresearch.com/gpuemu/quickstart">Quick Start</a> •
-  <a href="https://docs.skelfresearch.com/gpuemu/integrations">Integrations</a> •
+  <a href="https://docs.skelfresearch.com/gpuemu/why-gpuemu/the-problem">The Problem</a> •
   <a href="https://github.com/skelfresearch/gpuemu/discussions">Community</a>
 </p>
 
 ---
 
-## Why gpuemu?
+## The problem: every benchmark says your kernel is "correct"
 
-Building GPU kernels is hard. Validating them shouldn't require a GPU farm.
+The industry-standard correctness oracle for a GPU kernel is one line:
 
-**gpuemu** is a validation and testing toolkit that lets you catch correctness bugs, numerical instabilities, and edge-case failures in your CUDA/GPU kernels — all from your laptop, your CI runner, or anywhere without GPU access.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Your GPU Kernel (CUDA, Triton, custom)                        │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  gpuemu                                                         │
-│  ├── CPU mirror execution     → validate math & indexing       │
-│  ├── Shape & layout fuzzing   → expose boundary bugs           │
-│  ├── Numerical stability      → catch precision issues         │
-│  └── Artifact analysis        → flag register spills & issues  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-              ✓ Deterministic, reproducible, CI-ready
+```python
+torch.allclose(my_kernel(x), reference(x), atol=1e-5, rtol=1e-2)
 ```
 
-### Built for kernel developers
+One shape. One dtype. One seed. Every modern LLM-kernel benchmark — **KernelBench**,
+**TritonBench**, **GEAK**, **KernelBand**, **STARK** — uses the same oracle. Kernels that
+pass it ship to production.
 
-- **Validate without GPUs** — Run correctness tests on any machine. Perfect for CI pipelines.
-- **Fuzz your kernels** — Automatically generate edge-case inputs that expose boundary, stride, and accumulation bugs.
-- **Reproducible failures** — Every failure includes a seed for exact reproduction.
-- **IDE integration** — Failures appear as diagnostics in VS Code. Right-click to reproduce.
-- **Framework agnostic** — Works with PyTorch, JAX, TensorFlow, or raw CUDA.
+That oracle is blind to entire bug classes that LLM-generated CUDA/Triton code routinely
+contains:
+
+| Bug class | Example | Why allclose misses it |
+|---|---|---|
+| **Tail-mask leak** | softmax forgets to mask the last partial tile | Only fires when `H` isn't a multiple of `BLOCK` — `H=256` looks fine |
+| **Accumulator scale** | matmul writes `acc =` instead of `acc +=` | Result happens to match within `rtol` on the chosen shape |
+| **Missing normalisation** | attention without `1/√D` | Saturates softmax differently; one shape looks correct |
+| **Online-softmax rescale** | flash-attention forgets `acc *= α` after max update | Only wrong when `N > BLOCK_N` |
+
+In our measured 26-op corpus, the standard one-shape oracle **accepts 9/9** of these
+LLM-style buggy kernels as correct (P1, [run records on B2][b2]).
+
+## Why it matters: silent correctness regressions ship at LLM scale
+
+Every modern LLM training and inference stack now ships LLM-generated CUDA/Triton kernels
+— fused attention, custom matmul variants, normalisation layers — and a silently-wrong
+kernel runs at scale. A miscompiled matmul propagates through every forward pass; a
+broken flash-attention degrades long-context quality without crashing; an unmasked
+reduction taints metrics no one looks at. The cost is **GPU-hours wasted on
+silently-broken work** and **slow, untraceable quality regressions** that survive months
+of CI green builds.
+
+This is not hypothetical. Every benchmark in the LLM-kernel literature shares the same
+oracle gap; the kernels they bless are the kernels that ship.
+
+## What gpuemu does
+
+gpuemu replaces "allclose on one shape" with an operator-domain–aware correctness regime
+that runs **without a GPU** for the validation step and with one for the artifact step.
+The product of four measured studies (P1–P4) shapes every default:
+
+| Capability | What it does | Measured finding |
+|---|---|---|
+| **fp64 reference oracle** | Validates GPU kernel output against a high-precision CPU reference per dtype | **P1**: 100% illusion catch on 9/9 LLM-style bugs across 5 GPU classes; 0 false positives on 15/15 controls |
+| **Op-schema-aware fuzzing** | Per-op shape generator with boundary + regular + adversarial value distributions | **P3**: 99% bug recall under adversarial values; +28 pp over the field-standard default |
+| **Per-op calibrated tolerances** | p95-of-controls × 1.5 envelope; fits each op/dtype individually | **P2**: +23 pp recall (65 → 82%) over a single hand-picked `atol=1e-5,rtol=1e-2` |
+| **Static PTX/SASS lint** | Register pressure, spills, instruction count from compiled artifacts | **P4**: structural Δregs predicts Δperf% consistently across H100/A100/L40S/A10/3060; semantic bugs (identical PTX) are blind — pair with the fp64 oracle |
+| **Reproducible RNG** | Bit-identical xorshift128+ in Rust and Python; exact input snapshots | Every flagged failure replays byte-for-byte from its seed |
+
+The full research backing lives in the [gpuemu-paper][paper-repo] artefact (P1–P4, with
+LaTeX manuscripts, run-id records on B2, and a kernel corpus you can replay).
 
 ---
 
-## Quick Start
+## Quick start
 
 ### Install
 
@@ -74,100 +97,76 @@ pip install gpuemu-py
 code --install-extension gpuemu.gpuemu
 ```
 
-### Initialize & Run
-
-```bash
-# Create a new project
-gpuemu init --name my-kernels --framework pytorch
-
-# Start the daemon
-gpuemu daemon start
-
-# Run validation
-gpuemu test --quick
-```
-
-### Python API
+### Validate a kernel
 
 ```python
 from gpuemu_py import Client
 
 client = Client()
 
-# Fuzz your kernel with 100 random inputs
+# Fuzz with op-schema-aware inputs and an fp64 reference oracle.
 results = client.fuzz_op_client_side(
     "flash_attention",
     run_op=lambda inputs: my_flash_attn(inputs["q"], inputs["k"], inputs["v"]),
     iterations=100,
+    value_distribution="adversarial",  # the P3 default — 99% recall
 )
 
 print(f"Passed: {results.passed}/{results.total}")
 ```
 
----
-
-## Core Capabilities
-
-| Capability | What it does |
-|------------|--------------|
-| **CPU Mirror Execution** | Run kernel logic on CPU to validate correctness without GPU hardware |
-| **Shape & Layout Fuzzing** | Auto-generate edge-case tensors (boundary sizes, non-contiguous strides) |
-| **Numerical Stability Checks** | Validate accumulation precision, reduction stability, tolerance envelopes |
-| **Artifact Linting** | Inspect PTX/IR for register pressure, spills, or missing optimizations |
-| **Deterministic CI** | Reproducible seeds, policy-driven pass/fail gates, JSON output |
-| **Cross-language RNG** | Bit-identical xorshift128+ in Rust and Python for reproducibility |
+A failure reports the seed, dtype, shape, and a base64 snapshot of the failing input. Re-run
+it byte-for-byte from any machine.
 
 ---
 
-## Execution Modes
+## The research backing (P1–P4)
+
+Each capability above is anchored to a measured study. All four ship as LaTeX manuscripts
+plus replayable run records on B2.
+
+- **[P1] The correctness illusion in LLM-generated GPU kernels** — Hardware-free fuzz oracle
+  catches 9/9 LLM-style bugs across 5 GPU classes (RTX 3060, A10, L40S, A100 SXM4, H100 NVL)
+  with 0 false positives on 15/15 controls.
+- **[P2] Operator-aware mixed-precision tolerance calibration** — p95-of-controls × 1.5
+  envelope raises kernel-bug recall from 65% to 82% over the field-standard fixed
+  `atol/rtol`, at zero precision cost.
+- **[P3] Test-input generation for tensor programs** — Seven-strategy ablation; adversarial
+  value sampling wins at 99% recall; "regular shape only" misses 100% of tail-mask bugs.
+- **[P4] Static PTX metrics track structural regressions but miss semantic ones** —
+  Structural Δregs / Δinstrs predicts Δperf% consistently across 5 GPU classes; semantic
+  bugs compile to identical PTX and need the correctness oracle.
+
+---
+
+## Execution modes
 
 gpuemu supports three ways to run your kernels:
 
-### Client-Side (Recommended)
-
-Your client runs the GPU kernel; gpuemu validates the output.
-
 ```python
-results = client.fuzz_op_client_side(
-    "matmul",
-    run_op=lambda inputs: torch.matmul(inputs["a"], inputs["b"]),
-    iterations=100,
-)
-```
+# Client-side (recommended): your code runs the GPU op; gpuemu validates.
+results = client.fuzz_op_client_side("matmul",
+    run_op=lambda i: torch.matmul(i["a"], i["b"]),
+    iterations=100)
 
-### Daemon-Orchestrated
+# Daemon-orchestrated: fetch cases, run yourself, submit outputs.
+for case in client.get_test_batch("my_op", count=50):
+    out = my_gpu_op(case["inputs"])
+    client.submit_output("my_op", case["inputs"], out, case["seed"])
 
-Fine-grained control: fetch test cases, run ops yourself, submit outputs.
-
-```python
-cases = client.get_test_batch("my_op", count=50)
-for case in cases:
-    output = my_gpu_op(case["inputs"])
-    result = client.submit_output("my_op", case["inputs"], output, case["seed"])
-```
-
-### Script-Based
-
-Configure reference scripts in `gpuemu.toml` — the daemon runs everything.
-
-```toml
-[[ops]]
-name = "my_op"
-reference = "scripts/ref_my_op.py"
-op_script = "scripts/run_my_op.py"
-execution_mode = "script_based"
+# Script-based: register reference + op scripts in gpuemu.toml; daemon runs everything.
 ```
 
 ---
 
-## VS Code Integration
+## VS Code integration
 
-Validation failures appear as **red squiggles** in your editor with actionable code actions:
+Validation failures appear as red squiggles with code actions:
 
-- **Problems panel** — Failures mapped to source with seed, dtype, and shape info
-- **Code actions** — Right-click → "Reproduce failure" or "Minimize test case"
-- **Test Explorer** — Ops appear in the Testing sidebar
-- **On-save validation** — Auto-triggers when you save reference scripts
+- **Problems panel** — seed, dtype, shape per failure
+- **Code actions** — "Reproduce failure" or "Minimize test case"
+- **Test Explorer** — ops appear in the Testing sidebar
+- **On-save validation** — auto-triggers on reference-script save
 
 ---
 
@@ -185,7 +184,7 @@ Validation failures appear as **red squiggles** in your editor with actionable c
                     ┌─────────────────────────────┐
                     │      gpuemu-daemon          │
                     │  ├── Validation engine      │
-                    │  ├── Fuzz test generator    │
+                    │  ├── Op-schema fuzzer       │
                     │  ├── Artifact analyzer      │
                     │  └── Failure storage (sled) │
                     └─────────────────────────────┘
@@ -193,18 +192,10 @@ Validation failures appear as **red squiggles** in your editor with actionable c
 
 ---
 
-## What gpuemu is NOT
-
-- **Not a cycle-accurate GPU emulator** — We validate correctness, not performance timing.
-- **Not a replacement for real hardware** — Use gpuemu for development; benchmark on real GPUs.
-- **Not a training framework** — We test kernels, not models.
-
----
-
-## Framework Support
+## Framework support
 
 | Framework | Status | Install |
-|-----------|--------|---------|
+|---|---|---|
 | PyTorch | Stable | `pip install gpuemu-py[torch]` |
 | JAX | Stable | `pip install gpuemu-py[jax]` |
 | TensorFlow | Stable | `pip install gpuemu-py[tensorflow]` |
@@ -212,37 +203,44 @@ Validation failures appear as **red squiggles** in your editor with actionable c
 
 ---
 
-## Documentation
+## What gpuemu is NOT
 
-Full documentation is available at **[docs.skelfresearch.com/gpuemu](https://docs.skelfresearch.com/gpuemu)**
-
-- [Getting Started](https://docs.skelfresearch.com/gpuemu/quickstart)
-- [Configuration Reference](https://docs.skelfresearch.com/gpuemu/configuration)
-- [Integration Guides](https://docs.skelfresearch.com/gpuemu/integrations)
-- [Validation Policies](https://docs.skelfresearch.com/gpuemu/validation)
-- [Architecture Deep Dive](https://docs.skelfresearch.com/gpuemu/architecture)
+- **Not a cycle-accurate GPU emulator** — correctness, not timing simulation.
+- **Not a replacement for real hardware** — final benchmarks still belong on the target GPU.
+- **Not a training framework** — kernel-level oracle, not a model-level one.
 
 ---
 
-## Platform Support
+## Documentation
+
+Full docs: **[docs.skelfresearch.com/gpuemu](https://docs.skelfresearch.com/gpuemu)**
+
+- [The Problem](https://docs.skelfresearch.com/gpuemu/why-gpuemu/the-problem) — what allclose misses
+- [Industry Impact](https://docs.skelfresearch.com/gpuemu/why-gpuemu/the-industry-impact) — what silent bugs cost
+- [The Evidence](https://docs.skelfresearch.com/gpuemu/why-gpuemu/the-evidence) — P1–P4 in one page
+- [Quick Start](https://docs.skelfresearch.com/gpuemu/getting-started/quickstart) — first validation in 5 minutes
+- [Architecture Deep Dive](https://docs.skelfresearch.com/gpuemu/concepts/architecture)
+
+---
+
+## Platform support
 
 | Platform | Status |
-|----------|--------|
+|---|---|
 | Linux | Primary target |
-| macOS | Fully supported |
+| macOS | Fully supported (CPU validation) |
 | Windows | Planned |
 
 ---
 
 ## Contributing
 
-We welcome contributions. See our [Contributing Guide](https://docs.skelfresearch.com/gpuemu/contributing) for details.
-
 ```bash
-# Run tests
 cargo test                    # Rust (58 tests)
-cd gpuemu-py && pytest -v     # Python (11 tests)
+cd gpuemu-py && pytest -v     # Python (11 tests, +7 daemon-live tests)
 ```
+
+See the [Contributing Guide](https://docs.skelfresearch.com/gpuemu/development/contributing).
 
 ---
 
@@ -255,3 +253,6 @@ Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE) at your o
 <p align="center">
   <sub>Built with care by the <a href="https://skelfresearch.com">Skelf Research</a> team</sub>
 </p>
+
+[b2]: https://github.com/sarkar-dipankar/gpuemu-paper
+[paper-repo]: https://github.com/sarkar-dipankar/gpuemu-paper

@@ -2,6 +2,13 @@
 
 gpuemu's validation engine compares the output of an op under test against a reference implementation. This page describes the validation pipeline, tolerance system, failure types, invariant checks, and tolerance calibration.
 
+!!! tip "Why this differs from `torch.allclose`"
+
+    The field-standard correctness oracle (`torch.allclose` on one shape, one dtype, one
+    seed) is blind to entire bug classes. gpuemu's validation pipeline below is the
+    direct answer to that gap. See [The Problem](../why-gpuemu/the-problem.md) for the
+    measured walkthrough.
+
 ---
 
 ## Validation Pipeline

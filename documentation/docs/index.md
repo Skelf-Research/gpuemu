@@ -1,83 +1,140 @@
 # gpuemu
 
-**GPU-less development, assessment, and validation for deep learning kernels.**
+**Catch silently-wrong GPU kernels before they reach production.**
 
 ---
 
-gpuemu is a development and CI toolchain that lets you validate GPU-targeted deep learning kernels **without a GPU**. It provides CPU mirror execution, deterministic fuzzing, numerical stability checks, artifact linting, and tight editor integration — all designed to catch bugs before they reach hardware.
+## The problem
+
+The industry-standard correctness oracle for an LLM-generated GPU kernel is one line:
+
+```python
+torch.allclose(my_kernel(x), reference(x), atol=1e-5, rtol=1e-2)
+```
+
+One shape. One dtype. One seed. Every modern LLM-kernel benchmark — KernelBench,
+TritonBench, GEAK, KernelBand, STARK — uses the same oracle. The kernels that pass it
+are the kernels that ship to production.
+
+That oracle is blind to bug classes that LLM-generated CUDA / Triton code routinely
+contains:
+
+- **Tail-mask leaks** in fused reductions (softmax `other=0.0` instead of `-inf`).
+- **Accumulator scale bugs** in matmul (`acc=` instead of `acc+=`).
+- **Missing normalisation** in attention (forgotten `1/√D`).
+- **Online-softmax rescale bugs** in flash-attention (forgotten `acc *= α`).
+
+In our measured 26-op corpus the standard oracle accepts **9 / 9** of these LLM-style
+buggy kernels as correct (P1).
+
+[**→ Read the full problem walkthrough**](why-gpuemu/the-problem.md)
+
+---
+
+## Why it matters for the industry
+
+Every modern LLM training and inference stack now ships LLM-generated CUDA / Triton
+kernels. A silently-wrong kernel runs at scale: a miscompiled matmul propagates through
+every forward pass; a broken flash-attention degrades long-context quality without
+crashing; an unmasked reduction taints metrics no one looks at. The cost is **GPU-hours
+wasted on silently-broken work** and **slow, untraceable quality regressions** that
+survive months of CI green builds.
+
+Every published LLM-kernel benchmark shares the same oracle gap. The kernels they bless
+are the kernels that ship.
+
+[**→ Read the industry impact in detail**](why-gpuemu/the-industry-impact.md)
+
+---
+
+## What gpuemu does
+
+gpuemu replaces "allclose on one shape" with an operator-domain-aware correctness regime
+backed by four measured studies (P1–P4).
 
 <div class="grid cards" markdown>
 
--   :material-rocket-launch:{ .lg .middle } **Get Started in 5 Minutes**
+-   :material-target:{ .lg .middle } **Op-schema-aware fuzzing**
 
     ---
 
-    Install the CLI, Python client, and run your first validation.
+    Per-operator shape generators with boundary, regular, and adversarial value
+    distributions.
 
-    [:octicons-arrow-right-24: Quick Start](getting-started/quickstart.md)
+    *Measured: 99 % bug recall under adversarial sampling (P3).*
 
--   :material-cog:{ .lg .middle } **Flexible Configuration**
-
-    ---
-
-    Configure tolerances, dtypes, invariants, and policies via `gpuemu.toml`.
-
-    [:octicons-arrow-right-24: Configuration](getting-started/configuration.md)
-
--   :material-test-tube:{ .lg .middle } **Framework Support**
+-   :material-scale-balance:{ .lg .middle } **fp64 reference + calibrated tolerances**
 
     ---
 
-    First-class adapters for PyTorch, JAX, and TensorFlow.
+    High-precision CPU reference; per-op `atol/rtol` derived from p95-of-controls.
 
-    [:octicons-arrow-right-24: Tutorials](tutorials/pytorch-validation.md)
+    *Measured: 100 % illusion catch with 0 false positives across 5 GPU classes (P1);
+    +23 pp recall over fixed `atol/rtol` (P2).*
 
--   :material-microsoft-visual-studio-code:{ .lg .middle } **VS Code Integration**
+-   :material-chip:{ .lg .middle } **Static PTX gating**
 
     ---
 
-    Live diagnostics, code actions, test explorer, and on-save validation.
+    Register pressure, spills, instruction count from the compiled artifact.
 
-    [:octicons-arrow-right-24: VS Code Guide](guides/vscode-extension.md)
+    *Measured: structural Δregs predicts Δperf% consistently across H100 / A100 / L40S /
+    A10 / 3060 (P4).*
+
+-   :material-replay:{ .lg .middle } **Reproducible failures**
+
+    ---
+
+    Bit-identical xorshift128+ in Rust and Python; exact input snapshots; byte-for-byte
+    replay.
 
 </div>
 
-## What gpuemu Does
+[**→ See the evidence (P1–P4)**](why-gpuemu/the-evidence.md)
 
-- **CPU Mirror Execution** — Run your kernel logic on CPU with deterministic inputs, then compare against a reference implementation.
-- **Shape & Layout Fuzzing** — Automatically test across batch sizes, sequence lengths, hidden dimensions, and memory layouts with reproducible seeds.
-- **Numerical Stability Checks** — Per-dtype tolerances, NaN/Inf detection, and invariant enforcement (non-negativity, shape preservation).
-- **Artifact Linting** — Inspect PTX/SASS for register pressure, spills, local memory usage, and forbidden instruction patterns.
-- **CI-First Workflow** — Deterministic tests with seed-based reproduction, JUnit/JSON output, and GitHub Actions/GitLab CI templates.
-- **Cross-Language RNG** — Bit-for-bit identical xorshift128+ PRNG in Rust and Python for reproducible failures.
-- **Editor Integration** — VS Code extension with Problems panel, code actions (reproduce/minimize), test explorer, and on-save validation.
+---
 
-## What gpuemu Is Not
+## Where to go next
 
-!!! note
-    gpuemu is **not** a cycle-accurate GPU emulator. It does not simulate GPU hardware, measure performance, or replace on-device benchmarking. It validates *correctness* of kernel logic on CPU.
+<div class="grid cards" markdown>
 
-## Architecture Overview
+-   :material-rocket-launch:{ .lg .middle } **Get started in 5 minutes**
 
-gpuemu has four components that work together:
+    ---
 
-```mermaid
-graph LR
-    A[gpuemu CLI] -->|IPC| B[gpuemu Daemon]
-    C[Python Client] -->|IPC| B
-    D[VS Code Extension] -->|CLI| A
-    B --> E[(sled DB)]
-    B --> F[Reference Scripts]
-```
+    Install the CLI, the Python client, and run your first validation.
 
-| Component | Role |
-|-----------|------|
-| **Daemon** (`gpuemu-daemon`) | IPC server handling validation, fuzzing, artifact analysis, and storage |
-| **CLI** (`gpuemu`) | Command-line interface for daemon control, testing, fuzzing, and CI |
-| **Python Client** (`gpuemu-py`) | Programmatic validation with PyTorch/JAX/TensorFlow adapters |
-| **VS Code Extension** | Editor integration with diagnostics, code actions, and test explorer |
+    [:octicons-arrow-right-24: Quick Start](getting-started/quickstart.md)
 
-## Supported Frameworks
+-   :material-bookshelf:{ .lg .middle } **Read a guide**
+
+    ---
+
+    For kernel authors, model developers, or custom-op integrators.
+
+    [:octicons-arrow-right-24: Kernel Author](guides/kernel-author.md)
+
+-   :material-flask:{ .lg .middle } **Run a tutorial**
+
+    ---
+
+    PyTorch, JAX, TensorFlow validation in 10 minutes each.
+
+    [:octicons-arrow-right-24: PyTorch Tutorial](tutorials/pytorch-validation.md)
+
+-   :material-book-open-variant:{ .lg .middle } **Architecture deep dive**
+
+    ---
+
+    Daemon, client, IPC protocol, sled storage, fuzzer internals.
+
+    [:octicons-arrow-right-24: Architecture](concepts/architecture.md)
+
+</div>
+
+---
+
+## Supported frameworks
 
 === "PyTorch"
 
@@ -106,17 +163,12 @@ graph LR
         ctx["output"] = my_custom_op(x)
     ```
 
-## Platform Support
+---
+
+## Platform support
 
 | Platform | Status | Notes |
-|----------|--------|-------|
+|---|---|---|
 | **Linux** | Primary | Full workflow including artifact inspection |
 | **macOS** | Core | CPU validation works fully; artifact inspection optional |
 | **Windows** | Future | Not currently targeted |
-
-## Next Steps
-
-- [Install gpuemu](getting-started/installation.md) and run your first validation
-- Read the [Architecture](concepts/architecture.md) overview to understand the system
-- Follow a framework tutorial: [PyTorch](tutorials/pytorch-validation.md), [JAX](tutorials/jax-validation.md), or [TensorFlow](tutorials/tensorflow-validation.md)
-- Set up [CI integration](tutorials/ci-integration.md) for your project

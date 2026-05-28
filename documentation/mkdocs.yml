@@ -87,6 +87,12 @@ nav:
       - The Problem: why-gpuemu/the-problem.md
       - Industry Impact: why-gpuemu/the-industry-impact.md
       - The Evidence: why-gpuemu/the-evidence.md
+      - Compared to Alternatives: why-gpuemu/compared-to.md
+      - Design Partners: why-gpuemu/design-partners.md
+  - Who uses gpuemu:
+      - Frontier-Lab Kernel Team: who-uses-gpuemu/frontier-lab-kernel-team.md
+      - OSS Inference Maintainer: who-uses-gpuemu/oss-inference-maintainer.md
+      - Inference-as-a-Service Vendor: who-uses-gpuemu/inference-vendor.md
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md

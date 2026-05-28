@@ -127,3 +127,35 @@ python3 scripts/replay_from_b2.py <run_id> <kernel> <iter>
 
 The replay loads the byte-for-byte input snapshot, re-runs through the daemon, and
 prints the verdict — proving the artefact is genuinely reproducible.
+
+---
+
+## Five moat signals from the competitive map
+
+The same four studies above were independently confirmed by a 2026 competitive-
+landscape sweep. As of mid-2026, **no public tool occupies the slot gpuemu sits in**:
+
+1. **No combined regime.** No public tool combines op-schema-aware fuzzing + fp64
+   oracle + per-op calibrated tolerances + static PTX/SASS lint. Fragments exist
+   (`torch.testing.assert_close`, NVIDIA Compute Sanitizer, ncu, ptxas spill stats)
+   but are never combined into one correctness oracle.
+2. **No cross-language reproducible RNG for tensor inputs.** gpuemu's bit-identical
+   xorshift128+ in Rust *and* Python means a seed that flagged a bug on a vast.ai
+   H100 replays byte-for-byte on a reviewer's laptop. The Rust↔Python parity test
+   in `crates/gpuemu-common/src/rng.rs` is, to our knowledge, unique.
+3. **No GPU cloud markets "GPU CI for kernel correctness."** Modal's published
+   GPU-health work, RunPod's CI hooks, Lambda's spot fleet are all *compute*. No
+   vendor advertises a kernel-correctness CI surface; gpuemu's ephemeral-GPU
+   harness (vast.ai + B2) is complementary to all of them.
+4. **No third-party PTX/SASS linter in active distribution.** ptxas spill stats
+   are not extensible; cuobjdump exposes data without a policy layer. P4's
+   `ArtifactLinter` + `ArtifactDiffer` + baseline-diffing flow fills this entire
+   layer.
+5. **Hugging Face's Kernel Hub is an integration target, not a competitor.** The
+   Hub's [own documentation](https://huggingface.co/docs/kernels/en/kernel-requirements)
+   explicitly tells contributors to *"check for numerical correctness
+   (`torch.testing.assert_close`)"* — the Hub assumes a correctness tool upstream of
+   distribution. gpuemu is positioned to be that tool.
+
+See [Compared to alternatives](compared-to.md) for the per-tool walk-through that
+backs each of these.

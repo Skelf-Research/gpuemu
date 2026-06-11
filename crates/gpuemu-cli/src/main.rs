@@ -3,6 +3,7 @@
 mod debug;
 mod init;
 mod report;
+mod signed_report;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -212,7 +213,7 @@ enum Commands {
 
     /// Generate report from stored validation results
     Report {
-        /// Output format (text, json, junit, sarif, pr-comment)
+        /// Output format (text, json, junit, sarif, pr-comment, html)
         #[arg(long, default_value = "text")]
         format: String,
 
@@ -231,6 +232,12 @@ enum Commands {
         /// Include artifact diff results against baseline
         #[arg(long)]
         include_artifacts: Option<String>,
+
+        /// Sign the report (HTML format only) with the user's ed25519 key.
+        /// Reads/creates ~/.gpuemu/sign-ed25519.{pub,sec}. Embeds SHA-256 of
+        /// the unsigned report + ed25519 signature + public-key fingerprint.
+        #[arg(long)]
+        signed: bool,
     },
 
     // =========================================================================
@@ -355,7 +362,8 @@ fn main() -> Result<()> {
             since_hours,
             include_lint,
             include_artifacts,
-        } => handle_report(format, output, since_hours, include_lint, include_artifacts),
+            signed,
+        } => handle_report(format, output, since_hours, include_lint, include_artifacts, signed),
         Commands::Debug { seed, repl, op } => handle_debug(seed, repl, op),
     }
 }
@@ -1330,6 +1338,7 @@ fn handle_report(
     since_hours: Option<u64>,
     include_lint: bool,
     include_artifacts: Option<String>,
+    signed: bool,
 ) -> Result<()> {
     // Check daemon is running
     if !check_daemon_running() {
@@ -1413,13 +1422,32 @@ fn handle_report(
         artifact_diffs,
     };
 
-    let report_content = report::generate_report(&summary, output_format);
+    // HTML / signed HTML is handled separately — it isn't a CiRunSummary
+    // serialisation but a customer-facing artefact with embedded styling and
+    // (optionally) an ed25519 signature footer.
+    let report_content = if format.to_lowercase() == "html" || signed {
+        let unsigned = signed_report::render_html(&summary);
+        if signed {
+            let key = signed_report::load_or_generate_keypair()?;
+            signed_report::sign_html(&unsigned, &key)?
+        } else {
+            unsigned
+        }
+    } else {
+        report::generate_report(&summary, output_format)
+    };
 
     // Output to file or stdout
     if let Some(path) = output {
         std::fs::write(&path, &report_content)
             .with_context(|| format!("Failed to write report to {:?}", path))?;
         println!("Report written to {:?}", path);
+        if signed {
+            let pub_path = dirs::home_dir()
+                .unwrap_or_default()
+                .join(".gpuemu/sign-ed25519.pub");
+            println!("Share the public key for verification: {}", pub_path.display());
+        }
     } else {
         println!("{}", report_content);
     }

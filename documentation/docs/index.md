@@ -94,6 +94,33 @@ backed by four measured studies (P1–P4).
 
 ---
 
+## How gpuemu compares — and who already uses it
+
+<div class="grid cards" markdown>
+
+-   :material-compare:{ .lg .middle } **Compared to alternatives**
+
+    ---
+
+    Where gpuemu fits next to `torch.testing.assert_close`, KernelBench, NVIDIA
+    Compute Sanitizer, Triton's own testing, HF Kernel Hub, and the OSS DL fuzzers.
+
+    [:octicons-arrow-right-24: Compared to](why-gpuemu/compared-to.md)
+
+-   :material-account-group:{ .lg .middle } **Who uses gpuemu**
+
+    ---
+
+    Three customer workflows — frontier-lab kernel teams, OSS-inference
+    maintainers, and inference-as-a-service vendors — each with a real cited issue
+    that the workflow prevents.
+
+    [:octicons-arrow-right-24: Who uses gpuemu](who-uses-gpuemu/frontier-lab-kernel-team.md)
+
+</div>
+
+---
+
 ## Where to go next
 
 <div class="grid cards" markdown>

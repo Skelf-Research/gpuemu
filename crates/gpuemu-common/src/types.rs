@@ -493,6 +493,43 @@ impl OpSchema {
     }
 }
 
+/// Value-generation distribution for the fuzzer.
+///
+/// Different strategies expose different bug classes:
+///  - `Uniform` (default) — uniform in roughly [-10, 10]; finds tolerance/
+///    accumulation bugs.
+///  - `NaNInjected` — uniform but a small fraction (~5%) of float elements
+///    are seeded with NaN / +Inf / -Inf; exposes kernels that mishandle
+///    non-finite inputs.
+///  - `Adversarial` — mix of subnormals, large near-fp-max, zeros, plus
+///    occasional NaN/Inf; finds kernels that overflow/underflow or rely on
+///    "normal" data ranges.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    SerdeSerialize,
+    SerdeDeserialize,
+)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+pub enum ValueDistribution {
+    Uniform,
+    NaNInjected,
+    Adversarial,
+}
+
+impl Default for ValueDistribution {
+    fn default() -> Self {
+        ValueDistribution::Uniform
+    }
+}
+
 /// Configuration for fuzz testing.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
@@ -509,6 +546,9 @@ pub struct FuzzConfig {
     /// per-input shapes from shared dims instead of one shape for all inputs.
     #[serde(default)]
     pub op_schema: Option<OpSchema>,
+    /// How the fuzzer fills tensor values (default `Uniform`).
+    #[serde(default)]
+    pub value_distribution: ValueDistribution,
 }
 
 impl Default for FuzzConfig {
@@ -523,6 +563,7 @@ impl Default for FuzzConfig {
                 LayoutType::Transposed,
             ],
             op_schema: None,
+            value_distribution: ValueDistribution::Uniform,
         }
     }
 }

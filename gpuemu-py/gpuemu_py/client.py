@@ -719,6 +719,7 @@ class Client:
         seed: Optional[int] = None,
         op_schema: Optional[Dict[str, Any]] = None,
         dtypes: Optional[List[str]] = None,
+        value_distribution: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Get a batch of test cases from the daemon.
 
@@ -751,6 +752,10 @@ class Client:
         }
         if op_schema is not None:
             fuzz_config["op_schema"] = op_schema
+        if value_distribution is not None:
+            # Accept "uniform" / "nan_injected" / "adversarial" — must match
+            # the Rust ValueDistribution serde variants.
+            fuzz_config["value_distribution"] = value_distribution
 
         request = {
             "type": "GetTestBatch",

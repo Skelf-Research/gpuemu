@@ -2,6 +2,14 @@
 
 A guide for engineers writing custom CUDA or HIP kernels who want to validate correctness, inspect compiled artifacts, and detect regressions.
 
+!!! tip "Why a kernel author needs more than the benchmark oracle"
+
+    LLM-generated CUDA/Triton kernels routinely contain bugs (tail-mask leaks,
+    accumulator-scale errors, missing normalisation) that the standard
+    one-shape `torch.allclose` oracle blesses as correct. The workflow on this page is
+    the alternative; see [The Evidence](../why-gpuemu/the-evidence.md) for the
+    measured findings (P1–P4) backing every default.
+
 ---
 
 ## Who This Is For

@@ -211,6 +211,18 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
+    /// Emit a correctness-coverage report (which configured ops have validation
+    /// results) in a format consumable by Codecov / Sonar / similar dashboards.
+    Coverage {
+        /// Output format: codecov | json | text.
+        #[arg(long, default_value = "codecov")]
+        format: String,
+
+        /// Output file (stdout if not specified).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
     /// Generate report from stored validation results
     Report {
         /// Output format (text, json, junit, sarif, pr-comment, html)
@@ -364,6 +376,7 @@ fn main() -> Result<()> {
             include_artifacts,
             signed,
         } => handle_report(format, output, since_hours, include_lint, include_artifacts, signed),
+        Commands::Coverage { format, output } => handle_coverage(format, output),
         Commands::Debug { seed, repl, op } => handle_debug(seed, repl, op),
     }
 }
@@ -1452,6 +1465,136 @@ fn handle_report(
         println!("{}", report_content);
     }
 
+    Ok(())
+}
+
+/// Emit a correctness-coverage report.
+///
+/// "Coverage" here means *which configured ops have a recent validation result*
+/// — the kernel-correctness analogue of line coverage. A project with 50 ops
+/// in `gpuemu.toml` and only 40 of them seen by `gpuemu ci` has 80 % coverage;
+/// the remaining 10 are still on the legacy `torch.testing.assert_close`
+/// oracle and represent uncovered surface.
+///
+/// Supports three output formats:
+///   - `codecov`: Codecov-compatible JSON ({ coverage: { <file>: <line>: 1|0 }})
+///     using each op_name as a synthetic file. Codecov happily ingests this
+///     even though there are no source lines per se.
+///   - `json`: structured `{ covered: [...], uncovered: [...], percent: ... }`
+///     for scripted ingestion.
+///   - `text`: human-readable summary.
+fn handle_coverage(format: String, output: Option<PathBuf>) -> Result<()> {
+    if !check_daemon_running() {
+        println!("Daemon is not running. Start it with: gpuemu daemon start");
+        return Ok(());
+    }
+
+    // Fetch the configured op list from the loaded config (the daemon doesn't
+    // expose this directly today; we read it from the same gpuemu.toml the
+    // daemon was started against).
+    let config_path = std::env::current_dir()
+        .unwrap_or_default()
+        .join("gpuemu.toml");
+    let configured_ops: Vec<String> = if config_path.exists() {
+        match std::fs::read_to_string(&config_path) {
+            Ok(text) => match toml::from_str::<toml::Value>(&text) {
+                Ok(toml::Value::Table(tbl)) => tbl
+                    .get("ops")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|op| {
+                                op.get("name").and_then(|n| n.as_str()).map(String::from)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            },
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+
+    // Fetch validated ops from the daemon's result store.
+    let validated: std::collections::BTreeSet<String> =
+        match send_request(Request::ListResults { limit: 10_000 }) {
+            Ok(Response::Results { results }) => {
+                results.into_iter().map(|r| r.op_name).collect()
+            }
+            _ => Default::default(),
+        };
+
+    let configured: std::collections::BTreeSet<String> =
+        configured_ops.into_iter().collect();
+    let covered: Vec<&String> = configured.intersection(&validated).collect();
+    let uncovered: Vec<&String> = configured.difference(&validated).collect();
+    let percent = if configured.is_empty() {
+        0.0
+    } else {
+        covered.len() as f64 / configured.len() as f64 * 100.0
+    };
+
+    let body = match format.to_lowercase().as_str() {
+        "codecov" => {
+            // Codecov consumes a JSON of the form
+            //   { "coverage": { "<file>": { "<line>": <hit-count> } } }
+            // We model each op as a synthetic file with a single line; hit
+            // count = 1 if validated, 0 if not. The frontend renders this as
+            // a tree under gpuemu/.
+            let mut coverage = serde_json::Map::new();
+            for op in &configured {
+                let key = format!("gpuemu/{}.op", op);
+                let hit = if validated.contains(op) { 1 } else { 0 };
+                let mut lines = serde_json::Map::new();
+                lines.insert("1".into(), serde_json::Value::from(hit));
+                coverage.insert(key, serde_json::Value::Object(lines));
+            }
+            serde_json::to_string_pretty(&serde_json::json!({
+                "coverage": coverage,
+                "messages": {
+                    "gpuemu_summary": format!(
+                        "{:.1}% kernel-correctness coverage ({} of {} ops validated; \
+                         {} still on torch.allclose)",
+                        percent, covered.len(), configured.len(), uncovered.len()
+                    )
+                }
+            }))?
+        }
+        "json" => serde_json::to_string_pretty(&serde_json::json!({
+            "covered": covered,
+            "uncovered": uncovered,
+            "configured_total": configured.len(),
+            "percent": percent,
+        }))?,
+        _ => {
+            let mut t = String::new();
+            t.push_str(&format!(
+                "gpuemu correctness coverage: {:.1}%  ({} / {} ops validated)\n\n",
+                percent,
+                covered.len(),
+                configured.len(),
+            ));
+            t.push_str("Covered:\n");
+            for op in &covered {
+                t.push_str(&format!("  ✓ {}\n", op));
+            }
+            t.push_str("\nUncovered:\n");
+            for op in &uncovered {
+                t.push_str(&format!("  ✗ {}  (still on legacy oracle)\n", op));
+            }
+            t
+        }
+    };
+
+    if let Some(path) = output {
+        std::fs::write(&path, &body)
+            .with_context(|| format!("writing {:?}", path))?;
+        println!("Coverage report written to {:?}", path);
+    } else {
+        println!("{}", body);
+    }
     Ok(())
 }
 

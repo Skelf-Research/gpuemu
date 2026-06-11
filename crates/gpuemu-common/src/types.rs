@@ -517,10 +517,12 @@ impl OpSchema {
     SerdeDeserialize,
 )]
 #[archive(check_bytes)]
-#[serde(rename_all = "snake_case")]
 pub enum ValueDistribution {
+    #[serde(rename = "uniform")]
     Uniform,
+    #[serde(rename = "nan_injected")]
     NaNInjected,
+    #[serde(rename = "adversarial")]
     Adversarial,
 }
 

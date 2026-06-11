@@ -449,6 +449,7 @@ mod tests {
             timestamp: 1000000,
             duration_ms: 150,
             repro_info: None,
+            error_stats: None,
         }
     }
 
@@ -469,6 +470,7 @@ mod tests {
             timestamp: 1000001,
             duration_ms: 200,
             repro_info: None,
+            error_stats: None,
         }
     }
 

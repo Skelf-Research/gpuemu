@@ -313,8 +313,12 @@ pub enum Response {
     // Phase 3: Artifact Inspection
     // =========================================================================
     /// Lint results for one or more kernels.
+    ///
+    /// Struct variant (not a newtype-`Vec`): internally-tagged enums
+    /// (`#[serde(tag = "type")]`) cannot serialize a newtype variant that wraps a
+    /// sequence, so the payload must be a named field.
     #[serde(rename = "LintResults")]
-    LintResults(Vec<LintResult>),
+    LintResults { results: Vec<LintResult> },
 
     /// Artifact metrics for a single kernel.
     #[serde(rename = "ArtifactMetricsResult")]
@@ -322,7 +326,7 @@ pub enum Response {
 
     /// List of artifact metrics.
     #[serde(rename = "ArtifactList")]
-    ArtifactList(Vec<ArtifactMetrics>),
+    ArtifactList { artifacts: Vec<ArtifactMetrics> },
 
     /// Diff results against baseline.
     #[serde(rename = "ArtifactDiffs")]
@@ -508,5 +512,40 @@ mod tests {
             "Expected JSON tag: {}",
             json_str
         );
+    }
+
+    #[test]
+    fn test_lint_results_roundtrip() {
+        // Regression: a newtype-Vec variant under #[serde(tag="type")] fails to
+        // serialize. As a struct variant it round-trips.
+        let lint = crate::types::LintResult {
+            kernel_name: "k".to_string(),
+            passed: true,
+            metrics: crate::types::ArtifactMetrics::default(),
+            violations: vec![],
+            timestamp: 0,
+        };
+        let resp = Response::LintResults {
+            results: vec![lint],
+        };
+        let bytes = serialize_response(&resp).expect("LintResults must serialize");
+        let json = String::from_utf8(bytes.clone()).unwrap();
+        assert!(json.contains("\"type\":\"LintResults\""), "json: {json}");
+        match deserialize_response(&bytes).unwrap() {
+            Response::LintResults { results } => assert_eq!(results.len(), 1),
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_artifact_list_roundtrip() {
+        let resp = Response::ArtifactList {
+            artifacts: vec![crate::types::ArtifactMetrics::default()],
+        };
+        let bytes = serialize_response(&resp).expect("ArtifactList must serialize");
+        match deserialize_response(&bytes).unwrap() {
+            Response::ArtifactList { artifacts } => assert_eq!(artifacts.len(), 1),
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 }

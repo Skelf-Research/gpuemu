@@ -13,4 +13,5 @@ thiserror = { workspace = true }
 rkyv = { workspace = true }
 bytecheck = { workspace = true }
 blake2 = { workspace = true }
+base64 = "0.21"
 dirs = "5.0"

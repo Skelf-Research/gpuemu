@@ -201,7 +201,7 @@ enum Commands {
         #[arg(long, default_value = "0")]
         parallel: u32,
 
-        /// Output format (text, json, junit)
+        /// Output format (text, json, junit, sarif, pr-comment)
         #[arg(long, default_value = "text")]
         format: String,
 
@@ -212,7 +212,7 @@ enum Commands {
 
     /// Generate report from stored validation results
     Report {
-        /// Output format (text, json, junit)
+        /// Output format (text, json, junit, sarif, pr-comment)
         #[arg(long, default_value = "text")]
         format: String,
 

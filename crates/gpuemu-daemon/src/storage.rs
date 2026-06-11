@@ -448,6 +448,7 @@ mod tests {
             },
             dtypes: vec![DType::Float32],
             layouts: vec![gpuemu_common::types::LayoutType::Contiguous],
+            op_schema: None,
         };
 
         storage.store_fuzz_config(12345, &config).unwrap();

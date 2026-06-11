@@ -541,6 +541,7 @@ fn handle_test(quick: bool, thorough: bool, seed: Option<u64>) -> Result<()> {
                     .collect::<Vec<_>>(),
             ),
             layouts: vec![LayoutType::Contiguous, LayoutType::Strided],
+            op_schema: None,
         };
 
         let request = Request::FuzzOp {
@@ -712,6 +713,7 @@ fn handle_fuzz(
             shape_options: ShapeOptions::default(),
             dtypes,
             layouts,
+            op_schema: None,
         };
 
         let request = Request::FuzzOp {
@@ -976,7 +978,7 @@ fn handle_lint(kernel: Option<String>, ptx: PathBuf, format: String) -> Result<(
     };
 
     match send_request(request) {
-        Ok(Response::LintResults(results)) => {
+        Ok(Response::LintResults { results }) => {
             if format == "json" {
                 println!(
                     "{}",
@@ -1213,7 +1215,7 @@ fn handle_artifacts(kernel: Option<String>) -> Result<()> {
             let request = Request::ListArtifacts;
 
             match send_request(request) {
-                Ok(Response::ArtifactList(artifacts)) => {
+                Ok(Response::ArtifactList { artifacts }) => {
                     if artifacts.is_empty() {
                         println!("No artifacts stored.");
                         println!("Run 'gpuemu lint --ptx <file>' to analyze and store artifacts.");

@@ -1,0 +1,65 @@
+{% set name = "gpuemu" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  # Pulled at conda-forge build time from the PyPI sdist of gpuemu-py and
+  # the GitHub release tarball of the Rust crates. The recipe ships two
+  # subpackages: gpuemu-py (Python client) and gpuemu (the Rust CLI +
+  # daemon).
+  url: https://github.com/Skelf-Research/gpuemu/archive/refs/tags/v{{ version }}.tar.gz
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000  # filled at release
+
+build:
+  number: 0
+  skip: true  # [win or py<310]
+
+requirements:
+  build:
+    - {{ compiler("rust") }}
+    - {{ compiler("c") }}
+    - cmake
+    - python >=3.10
+    - pip
+    - setuptools
+  host:
+    - python >=3.10
+    - pip
+    - numpy
+  run:
+    - python >=3.10
+    - numpy >=1.24
+    - pynng
+
+test:
+  imports:
+    - gpuemu_py
+  commands:
+    - gpuemu version
+    - gpuemu --help
+    - python -c "import gpuemu_py; print(gpuemu_py.__version__)"
+
+about:
+  home: https://docs.skelfresearch.com/gpuemu
+  license: MIT OR Apache-2.0
+  license_family: MIT
+  license_file:
+    - LICENSE-MIT
+    - LICENSE-APACHE
+  summary: Hardware-free GPU kernel correctness validation
+  description: |
+    gpuemu replaces the field-standard `torch.testing.assert_close`-on-one-shape
+    correctness oracle with an op-schema-aware seeded fuzzer + fp64 reference +
+    per-op calibrated tolerances + static PTX/SASS lint. Catches LLM-generated
+    GPU kernel bugs that ship past every public benchmark today (P1: 9/9
+    illusions caught across 5 GPU classes; see the four-paper artefact at
+    sarkar-dipankar/gpuemu-paper).
+  doc_url: https://docs.skelfresearch.com/gpuemu
+  dev_url: https://github.com/Skelf-Research/gpuemu
+
+extra:
+  recipe-maintainers:
+    - sarkar-dipankar

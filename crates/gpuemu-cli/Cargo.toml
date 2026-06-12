@@ -21,6 +21,7 @@ tokio = { workspace = true }
 nng = { workspace = true }
 clap = { workspace = true }
 dirs = "5.0"
+toml = { workspace = true }
 
 # Signed Kernel Correctness Report (gpuemu report --signed).
 sha2 = "0.10"

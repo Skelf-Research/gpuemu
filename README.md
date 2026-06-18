@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/skelfresearch/gpuemu/actions"><img src="https://img.shields.io/github/actions/workflow/status/skelfresearch/gpuemu/ci.yml?branch=main&style=flat-square&logo=github" alt="CI"></a>
+  <a href="https://github.com/Skelf-Research/gpuemu/actions"><img src="https://img.shields.io/github/actions/workflow/status/Skelf-Research/gpuemu/ci.yml?branch=main&style=flat-square&logo=github" alt="CI"></a>
   <a href="https://crates.io/crates/gpuemu"><img src="https://img.shields.io/crates/v/gpuemu?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
   <a href="https://pypi.org/project/gpuemu/"><img src="https://img.shields.io/pypi/v/gpuemu?style=flat-square&logo=python&logoColor=white" alt="PyPI"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=gpuemu.gpuemu"><img src="https://img.shields.io/visual-studio-marketplace/v/gpuemu.gpuemu?style=flat-square&logo=visualstudiocode&logoColor=white&label=VS%20Code" alt="VS Code"></a>
@@ -18,9 +18,10 @@
 
 <p align="center">
   <a href="https://docs.skelfresearch.com/gpuemu">Documentation</a> •
-  <a href="https://docs.skelfresearch.com/gpuemu/quickstart">Quick Start</a> •
+  <a href="https://docs.skelfresearch.com/gpuemu/getting-started/quickstart">Quick Start</a> •
   <a href="https://docs.skelfresearch.com/gpuemu/why-gpuemu/the-problem">The Problem</a> •
-  <a href="https://github.com/skelfresearch/gpuemu/discussions">Community</a>
+  <a href="#research--evidence">Research</a> •
+  <a href="https://github.com/Skelf-Research/gpuemu/discussions">Community</a>
 </p>
 
 ---
@@ -47,8 +48,8 @@ contains:
 | **Missing normalisation** | attention without `1/√D` | Saturates softmax differently; one shape looks correct |
 | **Online-softmax rescale** | flash-attention forgets `acc *= α` after max update | Only wrong when `N > BLOCK_N` |
 
-In our measured 26-op corpus, the standard one-shape oracle **accepts 9/9** of these
-LLM-style buggy kernels as correct (P1, [run records on B2][b2]).
+In a measured 26-op corpus, the standard one-shape oracle **accepts 9 out of 9** of these
+LLM-style buggy kernels as correct.
 
 ## Why it matters: silent correctness regressions ship at LLM scale
 
@@ -65,22 +66,38 @@ oracle gap; the kernels they bless are the kernels that ship.
 
 ## What gpuemu does
 
-gpuemu replaces "allclose on one shape" with an operator-domain–aware correctness regime
-that runs **without a GPU** for the validation step and with one for the artifact step.
-The product of four measured studies (P1–P4) shapes every default:
+gpuemu replaces "allclose on one shape" with an operator-domain–aware correctness regime.
+**The validation step runs without a GPU** (it compares against a high-precision CPU
+reference); only the optional artifact step needs one.
 
-| Capability | What it does | Measured finding |
+| Capability | What it does | What you gain |
 |---|---|---|
-| **fp64 reference oracle** | Validates GPU kernel output against a high-precision CPU reference per dtype | **P1**: 100% illusion catch on 9/9 LLM-style bugs across 5 GPU classes; 0 false positives on 15/15 controls |
-| **Op-schema-aware fuzzing** | Per-op shape generator with boundary + regular + adversarial value distributions | **P3**: 99% bug recall under adversarial values; +28 pp over the field-standard default |
-| **Per-op calibrated tolerances** | p95-of-controls × 1.5 envelope; fits each op/dtype individually | **P2**: +23 pp recall (65 → 82%) over a single hand-picked `atol=1e-5,rtol=1e-2` |
-| **Static PTX/SASS lint** | Register pressure, spills, instruction count from compiled artifacts | **P4**: structural Δregs predicts Δperf% consistently across H100/A100/L40S/A10/3060; semantic bugs (identical PTX) are blind — pair with the fp64 oracle |
-| **Reproducible RNG** | Bit-identical xorshift128+ in Rust and Python; exact input snapshots | Every flagged failure replays byte-for-byte from its seed |
+| **fp64 reference oracle** | Validates kernel output against a high-precision CPU reference, per dtype | A real correctness signal — not "it matched on the one shape we happened to try" |
+| **Op-schema-aware fuzzing** | Per-op generator with boundary + regular + adversarial value distributions | Coverage of the partial-tile and edge cases your kernel actually breaks on |
+| **Per-op calibrated tolerances** | A p95-of-controls × 1.5 envelope, fit per op and dtype | Catches real regressions without flagging normal floating-point noise |
+| **Static PTX/SASS lint** | Register pressure, spills, and instruction counts vs a baseline | A performance-regression gate on the compiled artifact |
+| **Reproducible RNG** | Bit-identical xorshift128+ in Rust and Python; exact input snapshots | Every failure replays byte-for-byte from its seed, on any machine |
 
-The full research backing lives in the [gpuemu-paper][paper-repo] artefact (P1–P4, with
-LaTeX manuscripts, run-id records on B2, and a kernel corpus you can replay).
+Every default above is backed by a measured study — see **[Research & evidence](#research--evidence)**.
 
----
+## What teams gain
+
+gpuemu turns "silent wrong-output" from an invisible failure mode into a red CI check with
+a replayable seed. It serves three profiles — each page leads with a real, cited regression
+the workflow prevents:
+
+- **[Frontier-lab kernel teams](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/frontier-lab-kernel-team)**
+  (Anthropic / OpenAI / DeepMind / Meta / xAI) — a pre-merge correctness gate scaled to
+  hundreds of ops, blocking PRs with replay-seed links.
+- **[OSS-inference maintainers](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/oss-inference-maintainer)**
+  (vLLM / SGLang / TensorRT-LLM / llama.cpp / MLC-LLM) — a one-line GitHub Action that
+  catches numerical regressions like SGLang #21238 and vLLM #26378 before release.
+- **[Inference-as-a-service vendors](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/inference-vendor)**
+  (Fireworks / Together / Anyscale / Modal / Replicate / Baseten / Modular) — a signed
+  Kernel Correctness Report customers verify offline as SLA evidence.
+
+Want to pilot the enterprise tier (private rule packs, on-prem daemon, signed reports)? See
+[Design Partners](https://docs.skelfresearch.com/gpuemu/why-gpuemu/design-partners).
 
 ## Quick start
 
@@ -109,7 +126,7 @@ results = client.fuzz_op_client_side(
     "flash_attention",
     run_op=lambda inputs: my_flash_attn(inputs["q"], inputs["k"], inputs["v"]),
     iterations=100,
-    value_distribution="adversarial",  # the P3 default — 99% recall
+    value_distribution="adversarial",  # recommended default
 )
 
 print(f"Passed: {results.passed}/{results.total}")
@@ -118,8 +135,6 @@ print(f"Passed: {results.passed}/{results.total}")
 A failure reports the seed, dtype, shape, and a base64 snapshot of the failing input. Re-run
 it byte-for-byte from any machine.
 
----
-
 ## Compared to
 
 The first question a champion gets asked is "isn't this just
@@ -127,7 +142,7 @@ The first question a champion gets asked is "isn't this just
 
 | Tool | What it does well | The gap gpuemu fills |
 |---|---|---|
-| `torch.testing.assert_close` | Standard, simple, in-tree | One shape, one dtype, one seed — measured to catch 0/9 LLM-style bugs in our corpus (P1) |
+| `torch.testing.assert_close` | Standard, simple, in-tree | One shape, one dtype, one seed — measured to catch 0/9 LLM-style bugs in our corpus |
 | KernelBench / TritonBench / GEAK / KernelBand / STARK | Leaderboards for LLM-generated kernels | Use the same one-shape oracle inside; not user-facing |
 | NVIDIA Compute Sanitizer | Memcheck / racecheck / synccheck | Memory bugs only — silent numerical wrong-output is invisible to it |
 | Triton built-in testing | Same `assert_close` semantics | No op-schema fuzz, no fp64 reference |
@@ -137,44 +152,6 @@ The first question a champion gets asked is "isn't this just
 
 The full walk-through, citations, and the five moat signals it surfaces live in
 [the Compared to alternatives page](https://docs.skelfresearch.com/gpuemu/why-gpuemu/compared-to).
-
-## Used by / built for
-
-gpuemu serves three distinct customer profiles. Each page leads with a real cited issue
-the workflow prevents:
-
-- **[Frontier-lab kernel teams](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/frontier-lab-kernel-team)** —
-  Anthropic / OpenAI / DeepMind / Meta / xAI. Pre-merge correctness gate scaled to
-  100s of ops; PR-blocking with replay-seed links.
-- **[OSS-inference maintainers](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/oss-inference-maintainer)** —
-  vLLM / SGLang / TensorRT-LLM / llama.cpp / MLC-LLM. One-line GitHub Action;
-  responds to issues like SGLang #15996, #21238 and vLLM #26378.
-- **[Inference-as-a-service vendors](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/inference-vendor)** —
-  Fireworks / Together / Anyscale / Modal / Replicate / Baseten / Modular. Signed
-  Kernel Correctness Report customers verify offline; SLA evidence artefact.
-
-If your team fits one of these profiles and you want to pilot the enterprise tier
-(private rule packs, on-prem daemon, signed reports), see
-[Design Partners](https://docs.skelfresearch.com/gpuemu/why-gpuemu/design-partners).
-
-## The research backing (P1–P4)
-
-Each capability above is anchored to a measured study. All four ship as LaTeX manuscripts
-plus replayable run records on B2.
-
-- **[P1] The correctness illusion in LLM-generated GPU kernels** — Hardware-free fuzz oracle
-  catches 9/9 LLM-style bugs across 5 GPU classes (RTX 3060, A10, L40S, A100 SXM4, H100 NVL)
-  with 0 false positives on 15/15 controls.
-- **[P2] Operator-aware mixed-precision tolerance calibration** — p95-of-controls × 1.5
-  envelope raises kernel-bug recall from 65% to 82% over the field-standard fixed
-  `atol/rtol`, at zero precision cost.
-- **[P3] Test-input generation for tensor programs** — Seven-strategy ablation; adversarial
-  value sampling wins at 99% recall; "regular shape only" misses 100% of tail-mask bugs.
-- **[P4] Static PTX metrics track structural regressions but miss semantic ones** —
-  Structural Δregs / Δinstrs predicts Δperf% consistently across 5 GPU classes; semantic
-  bugs compile to identical PTX and need the correctness oracle.
-
----
 
 ## Execution modes
 
@@ -194,8 +171,6 @@ for case in client.get_test_batch("my_op", count=50):
 # Script-based: register reference + op scripts in gpuemu.toml; daemon runs everything.
 ```
 
----
-
 ## VS Code integration
 
 Validation failures appear as red squiggles with code actions:
@@ -205,14 +180,12 @@ Validation failures appear as red squiggles with code actions:
 - **Test Explorer** — ops appear in the Testing sidebar
 - **On-save validation** — auto-triggers on reference-script save
 
----
-
 ## Architecture
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
 │   gpuemu CLI     │     │   Python Client  │     │  VS Code Ext     │
-│   (Rust)         │     │   (gpuemu-py)    │     │  (TypeScript)    │
+│   (Rust)         │     │   (gpuemu)       │     │  (TypeScript)    │
 └────────┬─────────┘     └────────┬─────────┘     └────────┬─────────┘
          │                        │                        │
          └────────────────────────┼────────────────────────┘
@@ -227,8 +200,6 @@ Validation failures appear as red squiggles with code actions:
                     └─────────────────────────────┘
 ```
 
----
-
 ## Framework support
 
 | Framework | Status | Install |
@@ -238,13 +209,30 @@ Validation failures appear as red squiggles with code actions:
 | TensorFlow | Stable | `pip install gpuemu[tensorflow]` |
 | Raw CUDA/Triton | Stable | `pip install gpuemu` |
 
----
-
 ## What gpuemu is NOT
 
 - **Not a cycle-accurate GPU emulator** — correctness, not timing simulation.
 - **Not a replacement for real hardware** — final benchmarks still belong on the target GPU.
 - **Not a training framework** — kernel-level oracle, not a model-level one.
+
+---
+
+## Research & evidence
+
+gpuemu is the engineering product of a research program. The defaults above aren't
+hand-tuned guesses — each is anchored to a measured study, and all four ship as LaTeX
+manuscripts with replayable run records and a kernel corpus.
+
+| # | Study | Headline finding |
+|---|---|---|
+| **P1** | The correctness illusion in LLM-generated GPU kernels | Hardware-free fuzz oracle catches **9/9** LLM-style bugs across 5 GPU classes (RTX 3060, A10, L40S, A100 SXM4, H100 NVL) with **0 false positives** on 15/15 controls |
+| **P2** | Operator-aware mixed-precision tolerance calibration | A p95-of-controls × 1.5 envelope raises kernel-bug recall from **65% to 82%** over a fixed `atol/rtol`, at zero precision cost |
+| **P3** | Test-input generation for tensor programs | Seven-strategy ablation: adversarial sampling wins at **99% recall**; "regular shapes only" misses **100%** of tail-mask bugs |
+| **P4** | Static PTX metrics track structural regressions but miss semantic ones | Structural Δregs / Δinstrs predicts Δperf% across 5 GPU classes; semantic bugs compile to **identical PTX** and need the correctness oracle |
+
+Full manuscripts, run-id records, and the replayable corpus live in the
+[gpuemu research program][paper-repo]. A one-page summary is on
+[The Evidence](https://docs.skelfresearch.com/gpuemu/why-gpuemu/the-evidence).
 
 ---
 
@@ -258,8 +246,6 @@ Full docs: **[docs.skelfresearch.com/gpuemu](https://docs.skelfresearch.com/gpue
 - [Quick Start](https://docs.skelfresearch.com/gpuemu/getting-started/quickstart) — first validation in 5 minutes
 - [Architecture Deep Dive](https://docs.skelfresearch.com/gpuemu/concepts/architecture)
 
----
-
 ## Platform support
 
 | Platform | Status |
@@ -267,8 +253,6 @@ Full docs: **[docs.skelfresearch.com/gpuemu](https://docs.skelfresearch.com/gpue
 | Linux | Primary target |
 | macOS | Fully supported (CPU validation) |
 | Windows | Planned |
-
----
 
 ## Contributing
 
@@ -278,8 +262,6 @@ cd gpuemu-py && pytest -v     # Python (11 tests, +7 daemon-live tests)
 ```
 
 See the [Contributing Guide](https://docs.skelfresearch.com/gpuemu/development/contributing).
-
----
 
 ## License
 
@@ -291,5 +273,4 @@ Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE) at your o
   <sub>Built with care by the <a href="https://skelfresearch.com">Skelf Research</a> team</sub>
 </p>
 
-[b2]: https://github.com/sarkar-dipankar/gpuemu-paper
-[paper-repo]: https://github.com/sarkar-dipankar/gpuemu-paper
+[paper-repo]: https://github.com/Skelf-Research/gpuemu-paper

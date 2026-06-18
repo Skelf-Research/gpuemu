@@ -95,8 +95,9 @@ gpuemu replaces the one-shape allclose oracle with:
 4. **Reproducible failures**: every fuzz iteration is a seed; every failure includes a
    base64 input snapshot for byte-for-byte replay.
 
-In the gpuemu corpus this regime catches **9/9** LLM-style bugs across 5 GPU classes,
-with **0 false positives** on 15 correct controls ([P1](the-evidence.md#p1-the-correctness-illusion)).
+In the gpuemu 26-op corpus this regime catches **10/10** LLM-style bugs across 5 GPU
+classes, with **0 false positives** on 16 correct controls
+([P1](the-evidence.md#p1-the-correctness-illusion)).
 
 ---
 

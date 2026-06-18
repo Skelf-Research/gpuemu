@@ -24,8 +24,8 @@ contains:
 - **Missing normalisation** in attention (forgotten `1/√D`).
 - **Online-softmax rescale bugs** in flash-attention (forgotten `acc *= α`).
 
-In our measured 26-op corpus the standard oracle accepts **9 / 9** of these LLM-style
-buggy kernels as correct (P1).
+In our measured 26-op corpus across five GPU classes the standard oracle accepts
+**10 / 10** of these LLM-style buggy kernels as correct (P1).
 
 [**→ Read the full problem walkthrough**](why-gpuemu/the-problem.md)
 

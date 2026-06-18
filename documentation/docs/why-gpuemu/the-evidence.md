@@ -2,7 +2,7 @@
 
 Every default in gpuemu is anchored to a measured study. This page summarises the four
 papers; the full LaTeX manuscripts, kernel corpus, and replayable B2 run records live in
-the [gpuemu-paper artefact](https://github.com/sarkar-dipankar/gpuemu-paper).
+the [gpuemu-paper artefact](https://github.com/Skelf-Research/gpuemu-paper).
 
 All five papers ran on the same harness: vast.ai ephemeral GPUs (RTX 3060, A10, L40S,
 A100 SXM4, H100 NVL) → Backblaze B2 (`sarkar-dipankar-research/gpuemu/`) → always-destroy
@@ -111,7 +111,7 @@ the sole correctness gate. The two methodologies are complementary, not competin
 Each paper publishes:
 
 - The LaTeX manuscript (`papers/p<N>/paper.tex` in
-  [gpuemu-paper](https://github.com/sarkar-dipankar/gpuemu-paper)).
+  [gpuemu-paper](https://github.com/Skelf-Research/gpuemu-paper)).
 - The driver (`drivers/p<N>_*.py`).
 - The B2 run records (`sarkar-dipankar-research/gpuemu/`).
 - The kernel corpus (`corpus/`), including the paired buggy variants with documented
@@ -120,7 +120,7 @@ Each paper publishes:
 To replay a flagged failure end-to-end:
 
 ```bash
-git clone https://github.com/sarkar-dipankar/gpuemu-paper
+git clone https://github.com/Skelf-Research/gpuemu-paper
 cd gpuemu-paper
 python3 scripts/replay_from_b2.py <run_id> <kernel> <iter>
 ```

@@ -11,10 +11,10 @@ Before you begin, make sure the following are in place:
 - [x] **gpuemu CLI** installed and on your `PATH` ([Installation](../getting-started/installation.md))
 - [x] **gpuemu daemon** running (`gpuemu daemon start --background`)
 - [x] **Python 3.9+** with a virtual environment activated
-- [ ] **gpuemu-py with JAX adapter** installed:
+- [ ] **gpuemu with JAX adapter** installed:
 
 ```bash
-pip install ./gpuemu-py[jax]
+pip install gpuemu[jax]
 ```
 
 !!! tip "Verify your setup"

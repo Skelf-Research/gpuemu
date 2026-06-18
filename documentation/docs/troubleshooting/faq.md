@@ -28,9 +28,9 @@ Answers to the most common questions about gpuemu, organized by topic.
 
     | Framework | Adapter | Install Extra |
     |-----------|---------|---------------|
-    | **PyTorch** | `gpuemu.frameworks.pytorch` | `pip install ./gpuemu-py[torch]` |
-    | **JAX** | `gpuemu.frameworks.jax` | `pip install ./gpuemu-py[jax]` |
-    | **TensorFlow** | `gpuemu.frameworks.tensorflow` | `pip install ./gpuemu-py[tensorflow]` |
+    | **PyTorch** | `gpuemu.frameworks.pytorch` | `pip install gpuemu[torch]` |
+    | **JAX** | `gpuemu.frameworks.jax` | `pip install gpuemu[jax]` |
+    | **TensorFlow** | `gpuemu.frameworks.tensorflow` | `pip install gpuemu[tensorflow]` |
 
     Each adapter handles tensor conversion, dtype mapping, and framework-specific idioms so you can validate ops using native framework types.
 
@@ -311,12 +311,12 @@ Answers to the most common questions about gpuemu, organized by topic.
           - uses: actions/checkout@v4
           - name: Install gpuemu
             run: |
-              cargo build --release
-              pip install ./gpuemu-py
+              cargo install gpuemu
+              pip install gpuemu
           - name: Start daemon
-            run: ./target/release/gpuemu daemon start --background
+            run: gpuemu daemon start --background
           - name: Run tests
-            run: ./target/release/gpuemu test --format junit > results.xml
+            run: gpuemu test --format junit > results.xml
           - name: Upload results
             uses: actions/upload-artifact@v4
             with:

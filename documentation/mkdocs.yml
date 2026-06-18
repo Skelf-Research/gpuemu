@@ -1,9 +1,9 @@
 site_name: gpuemu
 site_description: GPU-less development, assessment, and validation for deep learning kernels
-site_url: https://gpuemu.dev
+site_url: https://docs.skelfresearch.com/gpuemu
 
-repo_name: gpuemu
-repo_url: https://github.com/example/gpuemu
+repo_name: Skelf-Research/gpuemu
+repo_url: https://github.com/Skelf-Research/gpuemu
 
 theme:
   name: material
@@ -129,6 +129,6 @@ nav:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/example/gpuemu
+      link: https://github.com/Skelf-Research/gpuemu
   version:
     provider: mike

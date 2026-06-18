@@ -101,7 +101,7 @@ def reference(inputs: dict, **kwargs) -> np.ndarray:
 ### 5. Install the Python client
 
 ```bash
-pip install ./gpuemu-py[torch]   # or [jax] or [tensorflow]
+pip install gpuemu[torch]   # or [jax] or [tensorflow]
 ```
 
 ---

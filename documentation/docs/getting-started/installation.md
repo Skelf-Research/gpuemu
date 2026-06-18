@@ -53,19 +53,33 @@ The CLI is the primary interface for running validations, controlling the daemon
         xcode-select --install
         ```
 
-### Build from source
-
-Clone the repository and build the release binary:
+### Install from crates.io (recommended)
 
 ```bash
-git clone https://github.com/example/gpuemu.git
+cargo install gpuemu
+```
+
+This builds and installs the `gpuemu` binary onto your `PATH` (under `~/.cargo/bin`). Verify it:
+
+```bash
+gpuemu --version
+```
+
+That's it — skip ahead to the [Python client](#2-python-client-gpuemu). The steps below are only needed if you'd rather build from a checkout.
+
+### Build from source (alternative)
+
+For contributors, or to track `main`, clone the repository and build the release binary:
+
+```bash
+git clone https://github.com/Skelf-Research/gpuemu.git
 cd gpuemu
 cargo build --release
 ```
 
 The compiled binary will be at `target/release/gpuemu`.
 
-### Install the binary
+#### Install the binary
 
 === "Linux"
 
@@ -121,10 +135,10 @@ The Python client provides programmatic access to the gpuemu daemon, including f
 
 ### Core installation
 
-From the repository root, install the package with pip:
+Install the package from PyPI:
 
 ```bash
-pip install ./gpuemu-py
+pip install gpuemu
 ```
 
 This installs the core library with the following dependencies:
@@ -141,7 +155,7 @@ This installs the core library with the following dependencies:
     ```bash
     python3 -m venv .venv
     source .venv/bin/activate
-    pip install ./gpuemu-py
+    pip install gpuemu
     ```
 
 ### Framework extras
@@ -151,25 +165,25 @@ Install optional framework-specific adapters using pip extras:
 === "PyTorch"
 
     ```bash
-    pip install ./gpuemu-py[torch]
+    pip install gpuemu[torch]
     ```
 
 === "JAX"
 
     ```bash
-    pip install ./gpuemu-py[jax]
+    pip install gpuemu[jax]
     ```
 
 === "TensorFlow"
 
     ```bash
-    pip install ./gpuemu-py[tensorflow]
+    pip install gpuemu[tensorflow]
     ```
 
 You can combine extras if you work with multiple frameworks:
 
 ```bash
-pip install ./gpuemu-py[torch,jax]
+pip install gpuemu[torch,jax]
 ```
 
 ---
@@ -256,7 +270,7 @@ ok
 | Problem | Solution |
 |---------|----------|
 | `cargo build` fails with missing dependencies | Make sure you have a C linker installed. On Linux: `sudo apt install build-essential`. On macOS: `xcode-select --install`. |
-| `pip install ./gpuemu-py` fails | Ensure you are using Python 3.9+ and pip is up to date: `pip install --upgrade pip`. |
+| `pip install gpuemu` fails | Ensure you are using Python 3.9+ and pip is up to date: `pip install --upgrade pip`. |
 | `gpuemu version` says "command not found" | Ensure `~/.gpuemu/bin` (or wherever you placed the binary) is in your `PATH`. Open a new terminal after editing your shell config. |
 | VS Code extension does not activate | Check that the `gpuemu` CLI is on your `PATH` and that you are running VS Code 1.85 or higher. |
 | `import gpuemu` raises `ModuleNotFoundError` | Make sure you installed the package in the same Python environment you are running. Check `which python` and `pip list | grep gpuemu`. |

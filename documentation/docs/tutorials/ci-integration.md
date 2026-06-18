@@ -43,18 +43,16 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build gpuemu
-        run: |
-          cargo build --release
-          echo "$PWD/target/release" >> $GITHUB_PATH
+      - name: Install gpuemu CLI
+        run: cargo install gpuemu
 
       - name: Install Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install gpuemu-py
-        run: pip install ./gpuemu-py[torch]
+      - name: Install gpuemu (Python client)
+        run: pip install gpuemu[torch]
 
       - name: Start daemon
         run: gpuemu daemon start --background
@@ -123,12 +121,12 @@ variables:
 .gpuemu-base:
   image: rust:1.75-bookworm
   before_script:
-    - cargo build --release
-    - export PATH="$PWD/target/release:$PATH"
+    - cargo install gpuemu
+    - export PATH="$CARGO_HOME/bin:$PATH"
     - apt-get update && apt-get install -y python3 python3-pip python3-venv
     - python3 -m venv .venv
     - source .venv/bin/activate
-    - pip install ./gpuemu-py[torch]
+    - pip install gpuemu[torch]
     - gpuemu daemon start --background
   after_script:
     - gpuemu daemon stop

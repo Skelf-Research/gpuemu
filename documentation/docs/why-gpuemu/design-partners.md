@@ -2,7 +2,7 @@
 
 gpuemu's daemon, CLI, Python client, and VS Code extension are dual-licensed
 **MIT / Apache-2.0** with no telemetry. They are and will remain so. The
-[research backing](the-evidence.md) (P1–P4) and the [kernel corpus](https://github.com/sarkar-dipankar/gpuemu-corpus)
+[research backing](the-evidence.md) (P1–P4) and the [kernel corpus](https://github.com/Skelf-Research/gpuemu-corpus)
 are public.
 
 We are working with **design partners on an enterprise tier** to extend the OSS core

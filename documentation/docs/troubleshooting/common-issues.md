@@ -251,7 +251,7 @@ This page covers the most frequently encountered problems when using gpuemu, alo
     Or install the full gpuemu Python package which includes it as a dependency:
 
     ```bash
-    pip install ./gpuemu-py
+    pip install gpuemu
     ```
 
     **On macOS**, pynng compiles native NNG bindings and may require CMake:
@@ -473,4 +473,4 @@ If your issue is not covered here:
 - Check the [FAQ](faq.md) for general questions.
 - Review the [Configuration](../getting-started/configuration.md) reference to ensure your `gpuemu.toml` is correct.
 - Inspect daemon logs with `gpuemu daemon logs` for detailed error information.
-- Search existing issues in the [GitHub repository](https://github.com/example/gpuemu/issues).
+- Search existing issues in the [GitHub repository](https://github.com/Skelf-Research/gpuemu/issues).

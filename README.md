@@ -120,6 +120,43 @@ it byte-for-byte from any machine.
 
 ---
 
+## Compared to
+
+The first question a champion gets asked is "isn't this just
+`torch.testing.assert_close`?" or "isn't this what KernelBench does?". Short version:
+
+| Tool | What it does well | The gap gpuemu fills |
+|---|---|---|
+| `torch.testing.assert_close` | Standard, simple, in-tree | One shape, one dtype, one seed — measured to catch 0/9 LLM-style bugs in our corpus (P1) |
+| KernelBench / TritonBench / GEAK / KernelBand / STARK | Leaderboards for LLM-generated kernels | Use the same one-shape oracle inside; not user-facing |
+| NVIDIA Compute Sanitizer | Memcheck / racecheck / synccheck | Memory bugs only — silent numerical wrong-output is invisible to it |
+| Triton built-in testing | Same `assert_close` semantics | No op-schema fuzz, no fp64 reference |
+| HF Kernel Hub | Distribution + ABI checks | Explicitly assumes a correctness tool upstream — that's gpuemu's slot |
+| ncu / cuobjdump / ptxas | Static PTX/SASS introspection | No lint policy, no baseline diffing, no regression gate |
+| FreeFuzz / DocTer / NablaFuzz / FuzzGPT | API-level DL framework fuzzers | API layer, not kernel; ACL TOSEM 2025 measured 6.5 % real-world bug catch |
+
+The full walk-through, citations, and the five moat signals it surfaces live in
+[the Compared to alternatives page](https://docs.skelfresearch.com/gpuemu/why-gpuemu/compared-to).
+
+## Used by / built for
+
+gpuemu serves three distinct customer profiles. Each page leads with a real cited issue
+the workflow prevents:
+
+- **[Frontier-lab kernel teams](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/frontier-lab-kernel-team)** —
+  Anthropic / OpenAI / DeepMind / Meta / xAI. Pre-merge correctness gate scaled to
+  100s of ops; PR-blocking with replay-seed links.
+- **[OSS-inference maintainers](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/oss-inference-maintainer)** —
+  vLLM / SGLang / TensorRT-LLM / llama.cpp / MLC-LLM. One-line GitHub Action;
+  responds to issues like SGLang #15996, #21238 and vLLM #26378.
+- **[Inference-as-a-service vendors](https://docs.skelfresearch.com/gpuemu/who-uses-gpuemu/inference-vendor)** —
+  Fireworks / Together / Anyscale / Modal / Replicate / Baseten / Modular. Signed
+  Kernel Correctness Report customers verify offline; SLA evidence artefact.
+
+If your team fits one of these profiles and you want to pilot the enterprise tier
+(private rule packs, on-prem daemon, signed reports), see
+[Design Partners](https://docs.skelfresearch.com/gpuemu/why-gpuemu/design-partners).
+
 ## The research backing (P1–P4)
 
 Each capability above is anchored to a measured study. All four ship as LaTeX manuscripts

@@ -1,6 +1,9 @@
 //! Report generators for CI integration.
 //!
-//! Supports JUnit XML, JSON, and plain text output formats.
+//! Supports plain text, JSON, JUnit XML, SARIF 2.1.0, and PR-comment Markdown
+//! output formats. SARIF and PR-comment are the surfaces GitHub Code Scanning and
+//! the gpuemu validate-action consume; see `documentation/docs/who-uses-gpuemu/`
+//! for the workflow.
 
 use gpuemu_common::types::{CiRunSummary, LintResult, ValidationResult};
 
@@ -10,6 +13,8 @@ pub enum OutputFormat {
     Text,
     Json,
     Junit,
+    Sarif,
+    PrComment,
 }
 
 impl OutputFormat {
@@ -19,6 +24,8 @@ impl OutputFormat {
             "text" => Some(OutputFormat::Text),
             "json" => Some(OutputFormat::Json),
             "junit" | "xml" => Some(OutputFormat::Junit),
+            "sarif" => Some(OutputFormat::Sarif),
+            "pr-comment" | "pr_comment" | "prcomment" => Some(OutputFormat::PrComment),
             _ => None,
         }
     }
@@ -30,6 +37,8 @@ pub fn generate_report(summary: &CiRunSummary, format: OutputFormat) -> String {
         OutputFormat::Text => TextReport::from_summary(summary),
         OutputFormat::Json => JsonReport::from_summary(summary),
         OutputFormat::Junit => JunitReport::from_summary(summary),
+        OutputFormat::Sarif => SarifReport::from_summary(summary),
+        OutputFormat::PrComment => PrCommentReport::from_summary(summary),
     }
 }
 
@@ -433,6 +442,295 @@ impl TextReport {
     }
 }
 
+// =============================================================================
+// SARIF 2.1.0 Report
+// =============================================================================
+//
+// SARIF (Static Analysis Results Interchange Format) is the format GitHub Code
+// Scanning, Sentry, and most code-quality dashboards consume. Spec:
+// https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/sarif-v2.1.0-os.html
+//
+// Each gpuemu ValidationFailure becomes one SARIF result with:
+//   - ruleId = "validation/<failure_kind>"  (e.g. "validation/ToleranceExceeded")
+//   - level  = "error"
+//   - message.text = human-readable summary including seed + max_diff
+//   - locations[0].logicalLocations[0].name = op_name (no source range — gpuemu
+//     doesn't know the kernel's source line yet; consumers display the op as a
+//     "function" location which is the SARIF logical-location idiom)
+//   - partialFingerprints.kindAndOp = "<kind>:<op_name>"  (lets GitHub dedupe the
+//     same finding across PR re-runs)
+//
+// Each gpuemu LintResult violation becomes one SARIF result with:
+//   - ruleId = "lint/<violation_kind>"
+//   - level  = "error"  (lint violations are gating; warn vs error is a future
+//     refinement once we add ArtifactCheckConfig severity levels)
+//   - message includes the offending metric value
+
+/// SARIF 2.1.0 report generator.
+pub struct SarifReport;
+
+impl SarifReport {
+    /// Convert CiRunSummary to a SARIF 2.1.0 JSON document.
+    pub fn from_summary(summary: &CiRunSummary) -> String {
+        let version = env!("CARGO_PKG_VERSION");
+
+        // Collect rules used in this run (deduplicated by ruleId) so SARIF
+        // consumers can group results.
+        let mut rule_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut results = Vec::<serde_json::Value>::new();
+
+        for r in &summary.validation_results {
+            if r.passed {
+                continue;
+            }
+            for f in &r.failures {
+                let rule_id = format!("validation/{:?}", f.kind);
+                rule_ids.insert(rule_id.clone());
+                let text = format!(
+                    "{} (op: {}, seed: {}, max_diff: {}). Reproduce with `gpuemu reproduce {}`.",
+                    f.message, r.op_name, r.seed, r.max_diff, r.seed
+                );
+                results.push(serde_json::json!({
+                    "ruleId": rule_id,
+                    "level": "error",
+                    "message": { "text": text },
+                    "locations": [{
+                        "logicalLocations": [{
+                            "name": r.op_name,
+                            "kind": "function"
+                        }]
+                    }],
+                    "partialFingerprints": {
+                        "kindAndOp": format!("{:?}:{}", f.kind, r.op_name)
+                    }
+                }));
+            }
+        }
+
+        for r in &summary.lint_results {
+            if r.passed {
+                continue;
+            }
+            for v in &r.violations {
+                let rule_id = format!("lint/{:?}", v.kind);
+                rule_ids.insert(rule_id.clone());
+                let text = format!(
+                    "{} (kernel: {}, regs: {}, spills: {}).",
+                    v.message,
+                    r.kernel_name,
+                    r.metrics.register_count,
+                    r.metrics.spill_count,
+                );
+                results.push(serde_json::json!({
+                    "ruleId": rule_id,
+                    "level": "error",
+                    "message": { "text": text },
+                    "locations": [{
+                        "logicalLocations": [{
+                            "name": r.kernel_name,
+                            "kind": "function"
+                        }]
+                    }],
+                    "partialFingerprints": {
+                        "kindAndKernel": format!("{:?}:{}", v.kind, r.kernel_name)
+                    }
+                }));
+            }
+        }
+
+        // Artifact-baseline regressions become "lint/Regression" results so the
+        // PR is gated on them through the same SARIF pipeline.
+        if let Some(diffs) = &summary.artifact_diffs {
+            for d in &diffs.diffs {
+                if !d.is_regression {
+                    continue;
+                }
+                let rule_id = "lint/Regression".to_string();
+                rule_ids.insert(rule_id.clone());
+                let text = format!(
+                    "Artifact regression on kernel {} vs baseline `{}` (Δregs={}, \
+                     Δspills={}, Δinstrs={}).",
+                    d.kernel_name,
+                    diffs.baseline_tag,
+                    d.register_delta,
+                    d.spill_delta,
+                    d.instruction_delta,
+                );
+                results.push(serde_json::json!({
+                    "ruleId": rule_id,
+                    "level": "error",
+                    "message": { "text": text },
+                    "locations": [{
+                        "logicalLocations": [{
+                            "name": d.kernel_name,
+                            "kind": "function"
+                        }]
+                    }],
+                    "partialFingerprints": {
+                        "kernelAndBaseline": format!("{}:{}", d.kernel_name, diffs.baseline_tag)
+                    }
+                }));
+            }
+        }
+
+        let rules: Vec<serde_json::Value> = rule_ids
+            .iter()
+            .map(|id| {
+                serde_json::json!({
+                    "id": id,
+                    "name": id,
+                    "shortDescription": { "text": id },
+                    "helpUri": "https://docs.skelfresearch.com/gpuemu/why-gpuemu/the-problem"
+                })
+            })
+            .collect();
+
+        let doc = serde_json::json!({
+            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [{
+                "tool": {
+                    "driver": {
+                        "name": "gpuemu",
+                        "version": version,
+                        "informationUri": "https://docs.skelfresearch.com/gpuemu",
+                        "rules": rules
+                    }
+                },
+                "results": results
+            }]
+        });
+
+        serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+// =============================================================================
+// PR-comment (Markdown) Report
+// =============================================================================
+//
+// The output the `gpuemu/validate-action` GitHub Action posts as a single PR
+// comment via `gh pr comment`. Reads cleanly on github.com; each failure has a
+// one-line `gpuemu reproduce <seed>` link the reviewer can paste locally.
+
+/// PR-comment Markdown report generator.
+pub struct PrCommentReport;
+
+impl PrCommentReport {
+    /// Convert CiRunSummary to a Markdown payload suitable for `gh pr comment -F -`.
+    pub fn from_summary(summary: &CiRunSummary) -> String {
+        let mut md = String::new();
+        let icon = if summary.has_failures() || summary.has_regressions() {
+            "❌"
+        } else {
+            "✅"
+        };
+        md.push_str(&format!(
+            "## {} gpuemu correctness report\n\n",
+            icon
+        ));
+        md.push_str(&format!(
+            "**{} passed**, **{} failed**, **{} skipped** ({:.2}s total).\n\n",
+            summary.passed,
+            summary.failed,
+            summary.skipped,
+            summary.duration_ms as f64 / 1000.0
+        ));
+
+        // Validation failures.
+        let val_fails: Vec<&ValidationResult> = summary
+            .validation_results
+            .iter()
+            .filter(|r| !r.passed)
+            .collect();
+        if !val_fails.is_empty() {
+            md.push_str("### Validation failures\n\n");
+            md.push_str("| op | failure | max_diff | seed | replay |\n");
+            md.push_str("|---|---|---:|---:|---|\n");
+            for r in &val_fails {
+                let kind = r
+                    .failures
+                    .first()
+                    .map(|f| format!("{:?}", f.kind))
+                    .unwrap_or_else(|| "Unknown".to_string());
+                md.push_str(&format!(
+                    "| `{}` | {} | {:.4e} | `{}` | `gpuemu reproduce {}` |\n",
+                    r.op_name, kind, r.max_diff, r.seed, r.seed
+                ));
+            }
+            md.push('\n');
+        }
+
+        // Lint violations.
+        let lint_fails: Vec<&LintResult> = summary
+            .lint_results
+            .iter()
+            .filter(|r| !r.passed)
+            .collect();
+        if !lint_fails.is_empty() {
+            md.push_str("### Static-PTX lint violations\n\n");
+            md.push_str("| kernel | violation | regs | spills | local | instrs |\n");
+            md.push_str("|---|---|---:|---:|---:|---:|\n");
+            for r in &lint_fails {
+                let kind = r
+                    .violations
+                    .first()
+                    .map(|v| format!("{:?}", v.kind))
+                    .unwrap_or_else(|| "Unknown".to_string());
+                md.push_str(&format!(
+                    "| `{}` | {} | {} | {} | {} | {} |\n",
+                    r.kernel_name,
+                    kind,
+                    r.metrics.register_count,
+                    r.metrics.spill_count,
+                    r.metrics.local_memory_bytes,
+                    r.metrics.instruction_count,
+                ));
+            }
+            md.push('\n');
+        }
+
+        // Artifact regressions.
+        if let Some(diffs) = &summary.artifact_diffs {
+            let regs: Vec<_> = diffs.diffs.iter().filter(|d| d.is_regression).collect();
+            if !regs.is_empty() {
+                md.push_str(&format!(
+                    "### Artifact regressions vs baseline `{}`\n\n",
+                    diffs.baseline_tag
+                ));
+                md.push_str("| kernel | Δregs | Δspills | Δlocal | Δinstrs |\n");
+                md.push_str("|---|---:|---:|---:|---:|\n");
+                for d in &regs {
+                    md.push_str(&format!(
+                        "| `{}` | {:+} | {:+} | {:+} | {:+} |\n",
+                        d.kernel_name,
+                        d.register_delta,
+                        d.spill_delta,
+                        d.local_memory_delta,
+                        d.instruction_delta,
+                    ));
+                }
+                md.push('\n');
+            }
+        }
+
+        if summary.has_failures() || summary.has_regressions() {
+            md.push_str(
+                "\n*Every flagged failure ships a seed for byte-for-byte replay. \
+                 Run `gpuemu reproduce <seed>` locally to debug.*\n",
+            );
+        } else {
+            md.push_str(
+                "\n*All ops pass the schema-aware fuzz + fp64-reference oracle. \
+                 See [the evidence](https://docs.skelfresearch.com/gpuemu/why-gpuemu/the-evidence) \
+                 for what this validates.*\n",
+            );
+        }
+
+        md
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,5 +845,122 @@ mod tests {
         assert_eq!(xml_escape("<test>"), "&lt;test&gt;");
         assert_eq!(xml_escape("a & b"), "a &amp; b");
         assert_eq!(xml_escape("\"quoted\""), "&quot;quoted&quot;");
+    }
+
+    #[test]
+    fn test_output_format_parses_sarif_and_pr_comment() {
+        assert_eq!(OutputFormat::from_str("sarif"), Some(OutputFormat::Sarif));
+        assert_eq!(OutputFormat::from_str("SARIF"), Some(OutputFormat::Sarif));
+        assert_eq!(
+            OutputFormat::from_str("pr-comment"),
+            Some(OutputFormat::PrComment)
+        );
+        assert_eq!(
+            OutputFormat::from_str("pr_comment"),
+            Some(OutputFormat::PrComment)
+        );
+        assert_eq!(
+            OutputFormat::from_str("prcomment"),
+            Some(OutputFormat::PrComment)
+        );
+        assert_eq!(OutputFormat::from_str("unknown"), None);
+    }
+
+    #[test]
+    fn test_sarif_generation_shape() {
+        let summary = CiRunSummary {
+            total_tests: 2,
+            passed: 1,
+            failed: 1,
+            skipped: 0,
+            duration_ms: 350,
+            timestamp: 1000000,
+            validation_results: vec![make_pass_result(), make_fail_result()],
+            lint_results: vec![],
+            artifact_diffs: None,
+        };
+        let s = SarifReport::from_summary(&summary);
+        let v: serde_json::Value = serde_json::from_str(&s).expect("sarif must be valid JSON");
+        assert_eq!(v["version"], "2.1.0");
+        assert!(v["$schema"].as_str().unwrap().contains("sarif-2.1.0"));
+        let run = &v["runs"][0];
+        assert_eq!(run["tool"]["driver"]["name"], "gpuemu");
+        let results = run["results"].as_array().unwrap();
+        // One failing validation result with one ValidationFailure → one SARIF result.
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["ruleId"], "validation/ToleranceExceeded");
+        assert_eq!(results[0]["level"], "error");
+        assert!(results[0]["message"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("gpuemu reproduce 67890"));
+        assert_eq!(
+            results[0]["locations"][0]["logicalLocations"][0]["name"],
+            "failing_op"
+        );
+        // Rule is registered on the driver.
+        let rules = run["tool"]["driver"]["rules"].as_array().unwrap();
+        assert!(rules.iter().any(|r| r["id"] == "validation/ToleranceExceeded"));
+    }
+
+    #[test]
+    fn test_sarif_clean_run_has_no_results() {
+        let summary = CiRunSummary {
+            total_tests: 1,
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+            duration_ms: 100,
+            timestamp: 1000000,
+            validation_results: vec![make_pass_result()],
+            lint_results: vec![],
+            artifact_diffs: None,
+        };
+        let s = SarifReport::from_summary(&summary);
+        let v: serde_json::Value = serde_json::from_str(&s).unwrap();
+        assert_eq!(v["runs"][0]["results"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_pr_comment_failed_summary() {
+        let summary = CiRunSummary {
+            total_tests: 2,
+            passed: 1,
+            failed: 1,
+            skipped: 0,
+            duration_ms: 350,
+            timestamp: 1000000,
+            validation_results: vec![make_pass_result(), make_fail_result()],
+            lint_results: vec![],
+            artifact_diffs: None,
+        };
+        let md = PrCommentReport::from_summary(&summary);
+        assert!(md.starts_with("## ❌ gpuemu correctness report"));
+        assert!(md.contains("**1 passed**, **1 failed**"));
+        assert!(md.contains("`failing_op`"));
+        assert!(md.contains("`gpuemu reproduce 67890`"));
+        // PR-comment is a single markdown payload — `gh pr comment -F -` reads it
+        // as one body; size sanity-check.
+        assert!(md.len() < 8000);
+    }
+
+    #[test]
+    fn test_pr_comment_clean_run() {
+        let summary = CiRunSummary {
+            total_tests: 1,
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+            duration_ms: 100,
+            timestamp: 1000000,
+            validation_results: vec![make_pass_result()],
+            lint_results: vec![],
+            artifact_diffs: None,
+        };
+        let md = PrCommentReport::from_summary(&summary);
+        assert!(md.starts_with("## ✅ gpuemu correctness report"));
+        assert!(md.contains("**1 passed**, **0 failed**"));
+        assert!(!md.contains("### Validation failures"));
+        assert!(md.contains("docs.skelfresearch.com/gpuemu/why-gpuemu/the-evidence"));
     }
 }

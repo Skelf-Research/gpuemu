@@ -1,0 +1,132 @@
+name: gpuemu validate
+description: |
+  Run the gpuemu correctness validator on a project's configured ops, upload
+  SARIF results to GitHub Code Scanning, and post a single PR comment listing
+  flagged ops with byte-for-byte replay seeds.
+
+  Built on top of the `gpuemu ci --format sarif|pr-comment` CLI surface; see
+  docs.skelfresearch.com/gpuemu/why-gpuemu/compared-to for what this catches.
+
+author: Skelf Research <me@dipankar.name>
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  config:
+    description: Path to gpuemu.toml (relative to the repo root).
+    required: false
+    default: gpuemu.toml
+  parallel:
+    description: Parallel validation workers (0 = auto-detect from config).
+    required: false
+    default: "0"
+  comment-on-pr:
+    description: Post a Markdown summary as a PR comment (requires pull_request trigger).
+    required: false
+    default: "true"
+  upload-sarif:
+    description: Upload SARIF 2.1.0 results to GitHub Code Scanning.
+    required: false
+    default: "true"
+  fail-on-failure:
+    description: Exit non-zero when any op fails validation. Disable for advisory-only mode.
+    required: false
+    default: "true"
+  image-tag:
+    description: |
+      ghcr.io image tag to use. `ci` is the with-torch variant; bare tags like
+      `v0.1.0` use the lean image. Pinning a version is recommended.
+    required: false
+    default: "ci"
+
+outputs:
+  sarif-path:
+    description: Path to the generated SARIF 2.1.0 report.
+    value: ${{ steps.run.outputs.sarif-path }}
+  passed:
+    description: Number of ops that passed.
+    value: ${{ steps.run.outputs.passed }}
+  failed:
+    description: Number of ops that failed.
+    value: ${{ steps.run.outputs.failed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run gpuemu ci
+      id: run
+      shell: bash
+      env:
+        GPUEMU_IMAGE: ghcr.io/${{ github.repository_owner }}/gpuemu:${{ inputs.image-tag }}
+      run: |
+        set -eo pipefail
+        mkdir -p .gpuemu-out
+
+        # Pull image (skip if already cached on the runner).
+        docker pull "$GPUEMU_IMAGE" || true
+
+        # SARIF run.
+        docker run --rm \
+          -v "$PWD":/work \
+          -w /work \
+          "$GPUEMU_IMAGE" \
+          ci \
+          --parallel "${{ inputs.parallel }}" \
+          --format sarif \
+          --output .gpuemu-out/gpuemu.sarif \
+          || RUN_FAILED=$?
+
+        # PR-comment run — reads the same daemon-stored state; cheap.
+        docker run --rm \
+          -v "$PWD":/work \
+          -w /work \
+          "$GPUEMU_IMAGE" \
+          report \
+          --format pr-comment \
+          --output .gpuemu-out/pr-comment.md \
+          || true
+
+        # Surface the counts via jq if jq is present; otherwise grep.
+        if command -v jq >/dev/null; then
+          passed=$(jq -r '.passed // 0' .gpuemu-out/summary.json 2>/dev/null || echo 0)
+          failed=$(jq -r '.failed // 0' .gpuemu-out/summary.json 2>/dev/null || echo 0)
+        else
+          passed=0
+          failed=0
+        fi
+
+        echo "sarif-path=.gpuemu-out/gpuemu.sarif" >> $GITHUB_OUTPUT
+        echo "passed=$passed" >> $GITHUB_OUTPUT
+        echo "failed=$failed" >> $GITHUB_OUTPUT
+        echo "exit-code=${RUN_FAILED:-0}" >> $GITHUB_OUTPUT
+
+    - name: Upload SARIF to Code Scanning
+      if: ${{ inputs.upload-sarif == 'true' && always() }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.run.outputs.sarif-path }}
+        category: gpuemu
+
+    - name: Post PR comment
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [ -f .gpuemu-out/pr-comment.md ]; then
+          # `gh pr comment --edit-last` would dedupe; we keep it simple and
+          # append for now. A future refinement is to fetch the previous
+          # gpuemu comment and edit-in-place.
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            -F .gpuemu-out/pr-comment.md
+        fi
+
+    - name: Fail on failure
+      if: ${{ inputs.fail-on-failure == 'true' }}
+      shell: bash
+      run: |
+        if [ "${{ steps.run.outputs.exit-code }}" != "0" ]; then
+          echo "::error::gpuemu reported ${{ steps.run.outputs.failed }} failing ops."
+          exit 1
+        fi

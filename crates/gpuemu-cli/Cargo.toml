@@ -21,3 +21,14 @@ tokio = { workspace = true }
 nng = { workspace = true }
 clap = { workspace = true }
 dirs = "5.0"
+toml = { workspace = true }
+
+# Signed Kernel Correctness Report (gpuemu report --signed).
+sha2 = "0.10"
+ed25519-dalek = { version = "2.1", features = ["rand_core", "pkcs8", "pem"] }
+rand_core = { version = "0.6", features = ["std"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"

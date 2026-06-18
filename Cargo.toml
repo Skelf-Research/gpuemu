@@ -10,7 +10,11 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/example/gpuemu"
+authors = ["Dipankar Sarkar <me@dipankar.name>"]
+repository = "https://github.com/Skelf-Research/gpuemu"
+homepage = "https://docs.skelfresearch.com/gpuemu"
+documentation = "https://docs.skelfresearch.com/gpuemu"
+rust-version = "1.74"
 
 [workspace.dependencies]
 # Shared dependencies
@@ -47,9 +51,9 @@ zstd = "0.13"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
-# Internal crates
-gpuemu-common = { path = "crates/gpuemu-common" }
-gpuemu-daemon = { path = "crates/gpuemu-daemon" }
+# Internal crates (version required so `cargo publish` can rewrite the path dep)
+gpuemu-common = { path = "crates/gpuemu-common", version = "0.1.0" }
+gpuemu-daemon = { path = "crates/gpuemu-daemon", version = "0.1.0" }
 
 # Release profile optimizations
 [profile.release]

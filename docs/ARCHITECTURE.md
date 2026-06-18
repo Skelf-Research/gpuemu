@@ -80,7 +80,7 @@ gpuemu uses a daemon + client architecture built in Rust:
 
 7. **CLI + Client Libraries**
    - `gpuemu` CLI for direct daemon interaction.
-   - `gpuemu-py` Python package for framework integration.
+   - `gpuemu` Python package for framework integration.
    - Both communicate with daemon via async-nng.
 
 ## Data flow (high level)
@@ -153,5 +153,5 @@ invariants = ["non_negative", "shape_preserved"]
 - The daemon runs on macOS and Linux (Rust binary).
 - Windows support planned for future releases.
 - Artifact inspection requires vendor toolchains (nvcc, cuobjdump) but not GPUs.
-- Python client (`gpuemu-py`) supports Python 3.9+.
+- Python client (`gpuemu`) supports Python 3.9+.
 

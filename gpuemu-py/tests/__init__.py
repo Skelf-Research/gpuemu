@@ -1,1 +1,1 @@
-"""Tests for gpuemu-py framework integrations."""
+"""Tests for gpuemu framework integrations."""

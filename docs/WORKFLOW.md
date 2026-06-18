@@ -9,7 +9,7 @@ This workflow is designed for developers without GPUs and for CI pipelines that 
 cargo install gpuemu
 
 # Install Python client
-pip install gpuemu-py
+pip install gpuemu
 
 # Start daemon
 gpuemu daemon start
@@ -94,7 +94,7 @@ jobs:
       - name: Install gpuemu
         run: |
           curl -sSL https://gpuemu.dev/install.sh | sh
-          pip install gpuemu-py
+          pip install gpuemu
 
       - name: Start daemon
         run: gpuemu daemon start --background

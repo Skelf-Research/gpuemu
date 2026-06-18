@@ -28,9 +28,9 @@ Answers to the most common questions about gpuemu, organized by topic.
 
     | Framework | Adapter | Install Extra |
     |-----------|---------|---------------|
-    | **PyTorch** | `gpuemu_py.frameworks.pytorch` | `pip install ./gpuemu-py[torch]` |
-    | **JAX** | `gpuemu_py.frameworks.jax` | `pip install ./gpuemu-py[jax]` |
-    | **TensorFlow** | `gpuemu_py.frameworks.tensorflow` | `pip install ./gpuemu-py[tensorflow]` |
+    | **PyTorch** | `gpuemu.frameworks.pytorch` | `pip install ./gpuemu-py[torch]` |
+    | **JAX** | `gpuemu.frameworks.jax` | `pip install ./gpuemu-py[jax]` |
+    | **TensorFlow** | `gpuemu.frameworks.tensorflow` | `pip install ./gpuemu-py[tensorflow]` |
 
     Each adapter handles tensor conversion, dtype mapping, and framework-specific idioms so you can validate ops using native framework types.
 
@@ -111,7 +111,7 @@ Answers to the most common questions about gpuemu, organized by topic.
     **Programmatically** in Python using calibration:
 
     ```python
-    from gpuemu_py.tolerances import calibrate_tolerance
+    from gpuemu.tolerances import calibrate_tolerance
 
     # Run multiple iterations and find the tightest tolerance that passes
     recommended = calibrate_tolerance(client, "my_op", dtype="float32", iterations=100)

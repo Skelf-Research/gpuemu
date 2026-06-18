@@ -18,7 +18,7 @@ class TestTensorFlowAdapter:
     @pytest.fixture
     def adapter(self):
         """Create a TensorFlowAdapter instance."""
-        from gpuemu_py.frameworks.tensorflow import TensorFlowAdapter
+        from gpuemu.frameworks.tensorflow import TensorFlowAdapter
 
         return TensorFlowAdapter()
 
@@ -123,7 +123,7 @@ class TestCheckTfFunctionSafe:
 
     def test_simple_function(self):
         """Test tf.function safety for simple operations."""
-        from gpuemu_py.frameworks.tensorflow import check_tf_function_safe
+        from gpuemu.frameworks.tensorflow import check_tf_function_safe
 
         def simple_op(x):
             return tf.sin(x)
@@ -133,7 +133,7 @@ class TestCheckTfFunctionSafe:
 
     def test_pure_operations(self):
         """Test tf.function safety for pure operations."""
-        from gpuemu_py.frameworks.tensorflow import check_tf_function_safe
+        from gpuemu.frameworks.tensorflow import check_tf_function_safe
 
         def pure_op(x, y):
             return x * y + tf.exp(x)
@@ -148,7 +148,7 @@ class TestCheckXlaCompatible:
 
     def test_simple_xla_compatible(self):
         """Test XLA compatibility for simple operations."""
-        from gpuemu_py.frameworks.tensorflow import check_xla_compatible
+        from gpuemu.frameworks.tensorflow import check_xla_compatible
 
         def simple_op(x):
             return tf.sin(x)
@@ -160,7 +160,7 @@ class TestCheckXlaCompatible:
 
     def test_matmul(self):
         """Test XLA compatibility for matrix operations."""
-        from gpuemu_py.frameworks.tensorflow import check_xla_compatible
+        from gpuemu.frameworks.tensorflow import check_xla_compatible
 
         def matmul_op(x, y):
             return tf.matmul(x, y)
@@ -176,7 +176,7 @@ class TestValidateCustomGradient:
 
     def test_correct_custom_gradient(self):
         """Test validation of correct custom gradient."""
-        from gpuemu_py.frameworks.tensorflow import validate_custom_gradient
+        from gpuemu.frameworks.tensorflow import validate_custom_gradient
 
         def func(x):
             return x ** 2
@@ -191,7 +191,7 @@ class TestValidateCustomGradient:
 
     def test_incorrect_custom_gradient(self):
         """Test validation catches incorrect custom gradient."""
-        from gpuemu_py.frameworks.tensorflow import validate_custom_gradient
+        from gpuemu.frameworks.tensorflow import validate_custom_gradient
 
         def func(x):
             return x ** 2
@@ -210,7 +210,7 @@ class TestLazyImport:
 
     def test_get_tensorflow_adapter(self):
         """Test get_tensorflow_adapter returns correct types."""
-        from gpuemu_py import get_tensorflow_adapter
+        from gpuemu import get_tensorflow_adapter
 
         TensorFlowAdapter, validate_tensorflow, check_keras_layer = (
             get_tensorflow_adapter()
@@ -222,7 +222,7 @@ class TestLazyImport:
 
     def test_direct_import(self):
         """Test direct import from submodule."""
-        from gpuemu_py.frameworks.tensorflow import (
+        from gpuemu.frameworks.tensorflow import (
             TensorFlowAdapter,
             check_keras_layer,
             validate_tensorflow,
@@ -238,7 +238,7 @@ class TestIntegrationWithKeras:
 
     def test_dense_layer_forward(self):
         """Test forward pass of a Dense layer."""
-        from gpuemu_py.frameworks.tensorflow import TensorFlowAdapter
+        from gpuemu.frameworks.tensorflow import TensorFlowAdapter
 
         adapter = TensorFlowAdapter()
         layer = tf.keras.layers.Dense(10)

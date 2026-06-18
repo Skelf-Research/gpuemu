@@ -8,8 +8,8 @@
 
 This crate holds the types, wire protocol, deterministic RNG, and configuration that the
 [`gpuemu-daemon`](https://crates.io/crates/gpuemu-daemon), the
-[`gpuemu`](https://crates.io/crates/gpuemu-cli) CLI, and the
-[`gpuemu-py`](https://pypi.org/project/gpuemu-py/) Python client all speak. If you are
+[`gpuemu`](https://crates.io/crates/gpuemu) CLI, and the
+[`gpuemu`](https://pypi.org/project/gpuemu/) Python client all speak. If you are
 *using* gpuemu, install the CLI or the Python client — you only depend on `gpuemu-common`
 directly when you are building a new gpuemu client, transport, or integration in Rust.
 

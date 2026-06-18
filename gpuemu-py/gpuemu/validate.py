@@ -7,8 +7,8 @@ from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 
-from gpuemu_py.client import Client, ValidationResult
-from gpuemu_py.rng import SeededRng, generate_seed
+from gpuemu.client import Client, ValidationResult
+from gpuemu.rng import SeededRng, generate_seed
 
 
 class ValidationError(Exception):

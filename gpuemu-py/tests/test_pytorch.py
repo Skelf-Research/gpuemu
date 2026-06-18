@@ -18,7 +18,7 @@ class TestPyTorchAdapter:
     @pytest.fixture
     def adapter(self):
         """Create a PyTorchAdapter instance."""
-        from gpuemu_py.frameworks.pytorch import PyTorchAdapter
+        from gpuemu.frameworks.pytorch import PyTorchAdapter
 
         return PyTorchAdapter()
 
@@ -142,7 +142,7 @@ class TestCheckAutograd:
 
     def test_correct_gradient(self):
         """Test check_autograd with correct gradient."""
-        from gpuemu_py.frameworks.pytorch import check_autograd
+        from gpuemu.frameworks.pytorch import check_autograd
 
         def square(x):
             return x ** 2
@@ -152,7 +152,7 @@ class TestCheckAutograd:
 
     def test_simple_ops(self):
         """Test check_autograd with various simple operations."""
-        from gpuemu_py.frameworks.pytorch import check_autograd
+        from gpuemu.frameworks.pytorch import check_autograd
 
         x = torch.randn(10, requires_grad=True)
 
@@ -168,7 +168,7 @@ class TestCheckAutograd:
 
     def test_multi_input(self):
         """Test check_autograd with multiple inputs."""
-        from gpuemu_py.frameworks.pytorch import check_autograd
+        from gpuemu.frameworks.pytorch import check_autograd
 
         def op(x, y):
             return x * y + torch.sin(x)
@@ -180,7 +180,7 @@ class TestCheckAutograd:
 
     def test_check_specific_inputs(self):
         """Test check_autograd with specific input selection."""
-        from gpuemu_py.frameworks.pytorch import check_autograd
+        from gpuemu.frameworks.pytorch import check_autograd
 
         def op(x, y):
             return x * y
@@ -197,7 +197,7 @@ class TestValidateCustomAutogradFunction:
 
     def test_correct_custom_function(self):
         """Test validation of correct custom autograd function."""
-        from gpuemu_py.frameworks.pytorch import validate_custom_autograd_function
+        from gpuemu.frameworks.pytorch import validate_custom_autograd_function
 
         class DoubleFunc(torch.autograd.Function):
             @staticmethod
@@ -217,7 +217,7 @@ class TestValidateCustomAutogradFunction:
 
     def test_incorrect_gradient(self):
         """Test validation catches incorrect gradient."""
-        from gpuemu_py.frameworks.pytorch import validate_custom_autograd_function
+        from gpuemu.frameworks.pytorch import validate_custom_autograd_function
 
         class WrongGradFunc(torch.autograd.Function):
             @staticmethod
@@ -240,7 +240,7 @@ class TestLazyImport:
 
     def test_get_pytorch_adapter(self):
         """Test get_pytorch_adapter returns correct types."""
-        from gpuemu_py import get_pytorch_adapter
+        from gpuemu import get_pytorch_adapter
 
         PyTorchAdapter, validate_pytorch, check_autograd = get_pytorch_adapter()
 
@@ -250,7 +250,7 @@ class TestLazyImport:
 
     def test_direct_import(self):
         """Test direct import from submodule."""
-        from gpuemu_py.frameworks.pytorch import (
+        from gpuemu.frameworks.pytorch import (
             PyTorchAdapter,
             check_autograd,
             validate_pytorch,

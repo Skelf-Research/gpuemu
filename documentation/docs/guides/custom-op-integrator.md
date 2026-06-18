@@ -194,7 +194,7 @@ with validate_pytorch(
 When you are unsure what tolerances are appropriate, use `calibrate_tolerance()` to measure the actual differences between your reference and the library's implementation:
 
 ```python
-from gpuemu_py.tolerances import calibrate_tolerance
+from gpuemu.tolerances import calibrate_tolerance
 import numpy as np
 
 def reference_fn(q, k, v):
@@ -337,8 +337,8 @@ Create `scripts/ref_flash_attention.py` with the NumPy reference shown [above](#
 ```python
 import torch
 from flash_attn import flash_attn_func
-from gpuemu_py.client import Client
-from gpuemu_py.frameworks.pytorch import validate_pytorch
+from gpuemu.client import Client
+from gpuemu.frameworks.pytorch import validate_pytorch
 
 client = Client()
 

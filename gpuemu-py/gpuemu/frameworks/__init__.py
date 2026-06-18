@@ -8,12 +8,12 @@ Each adapter is lazily imported to avoid import errors when the framework
 is not installed.
 
 Example:
-    >>> from gpuemu_py.frameworks.pytorch import validate_pytorch, check_autograd, fuzz_pytorch_op
-    >>> from gpuemu_py.frameworks.jax import validate_jax, check_vmap_compatible, fuzz_jax_op
-    >>> from gpuemu_py.frameworks.tensorflow import validate_tensorflow, fuzz_tensorflow_op
+    >>> from gpuemu.frameworks.pytorch import validate_pytorch, check_autograd, fuzz_pytorch_op
+    >>> from gpuemu.frameworks.jax import validate_jax, check_vmap_compatible, fuzz_jax_op
+    >>> from gpuemu.frameworks.tensorflow import validate_tensorflow, fuzz_tensorflow_op
 """
 
-from gpuemu_py.frameworks.base import FrameworkAdapter
+from gpuemu.frameworks.base import FrameworkAdapter
 
 __all__ = ["FrameworkAdapter"]
 
@@ -27,7 +27,7 @@ def get_pytorch_adapter():
     Raises:
         ImportError: If PyTorch is not installed.
     """
-    from gpuemu_py.frameworks.pytorch import (
+    from gpuemu.frameworks.pytorch import (
         PyTorchAdapter,
         check_autograd,
         fuzz_pytorch_op,
@@ -46,7 +46,7 @@ def get_jax_adapter():
     Raises:
         ImportError: If JAX is not installed.
     """
-    from gpuemu_py.frameworks.jax import (
+    from gpuemu.frameworks.jax import (
         JAXAdapter,
         check_jit_safe,
         check_vmap_compatible,
@@ -66,7 +66,7 @@ def get_tensorflow_adapter():
     Raises:
         ImportError: If TensorFlow is not installed.
     """
-    from gpuemu_py.frameworks.tensorflow import (
+    from gpuemu.frameworks.tensorflow import (
         TensorFlowAdapter,
         check_keras_layer,
         fuzz_tensorflow_op,

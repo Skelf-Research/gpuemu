@@ -131,7 +131,7 @@ This page covers the most frequently encountered problems when using gpuemu, alo
     **Use recommended tolerances** based on empirical measurement:
 
     ```python
-    from gpuemu_py.tolerances import get_recommended_tolerance
+    from gpuemu.tolerances import get_recommended_tolerance
 
     rec = get_recommended_tolerance("softmax", dtype="float32")
     print(rec)  # {"atol": 1e-4, "rtol": 1e-4}
@@ -140,7 +140,7 @@ This page covers the most frequently encountered problems when using gpuemu, alo
     **Calibrate tolerances** by running multiple iterations and finding the minimum safe threshold:
 
     ```python
-    from gpuemu_py.tolerances import calibrate_tolerance
+    from gpuemu.tolerances import calibrate_tolerance
 
     result = calibrate_tolerance(client, "softmax", dtype="float32", iterations=200)
     print(result)  # {"atol": 5.2e-5, "rtol": 4.8e-5}

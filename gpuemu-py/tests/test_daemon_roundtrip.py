@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 pynng = pytest.importorskip("pynng")
-from gpuemu_py.client import Client  # noqa: E402
+from gpuemu.client import Client  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

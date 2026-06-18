@@ -1,11 +1,11 @@
 # Python API Reference
 
-## gpuemu_py
+## gpuemu
 
 ### Client
 
 ```python
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 client.connect()
@@ -22,7 +22,7 @@ client.close()
 ### Context Managers
 
 ```python
-from gpuemu_py import validate_op
+from gpuemu import validate_op
 
 with validate_op(client, "my_op", inputs, expected):
     pass  # Validation happens automatically
@@ -32,15 +32,15 @@ with validate_op(client, "my_op", inputs, expected):
 
 ```python
 # PyTorch
-from gpuemu_py import get_pytorch_adapter
+from gpuemu import get_pytorch_adapter
 PyTorchAdapter, validate_pytorch, check_autograd = get_pytorch_adapter()
 
 # JAX
-from gpuemu_py import get_jax_adapter
+from gpuemu import get_jax_adapter
 JAXAdapter, validate_jax, check_vmap, check_jit = get_jax_adapter()
 
 # TensorFlow
-from gpuemu_py import get_tensorflow_adapter
+from gpuemu import get_tensorflow_adapter
 TensorFlowAdapter, validate_tf, check_keras = get_tensorflow_adapter()
 ```
 

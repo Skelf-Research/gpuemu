@@ -1,4 +1,4 @@
-"""gpuemu-py: Python client for GPU-less validation of deep learning kernels.
+"""gpuemu: Python client for GPU-less validation of deep learning kernels.
 
 This package provides:
 - Client for communicating with the gpuemu daemon
@@ -8,18 +8,18 @@ This package provides:
 - Cross-framework tolerance calibration
 
 Example:
-    >>> from gpuemu_py import Client
+    >>> from gpuemu import Client
     >>> client = Client()
     >>> client.ping()
     {'version': '0.1.0', 'uptime_secs': 123}
 
 For framework-specific validation:
-    >>> from gpuemu_py.frameworks.pytorch import validate_pytorch
+    >>> from gpuemu.frameworks.pytorch import validate_pytorch
     >>> with validate_pytorch(client, "my_op", {"x": x}) as ctx:
     ...     ctx["output"] = my_custom_op(x)
 """
 
-from gpuemu_py.client import (
+from gpuemu.client import (
     Client,
     ClientError,
     FuzzResults,
@@ -28,14 +28,14 @@ from gpuemu_py.client import (
     ReproductionInfo,
     ValidationResult,
 )
-from gpuemu_py.rng import SeededRng, derive_seed, generate_seed
-from gpuemu_py.tolerances import (
+from gpuemu.rng import SeededRng, derive_seed, generate_seed
+from gpuemu.tolerances import (
     ToleranceConfig,
     ToleranceProfile,
     calibrate_tolerance,
     get_recommended_tolerance,
 )
-from gpuemu_py.validate import (
+from gpuemu.validate import (
     FuzzConfig,
     SeededFuzzer,
     ValidationError,
@@ -65,7 +65,7 @@ def get_pytorch_adapter():
     Example:
         >>> PyTorchAdapter, validate_pytorch, check_autograd = get_pytorch_adapter()
     """
-    from gpuemu_py.frameworks.pytorch import (
+    from gpuemu.frameworks.pytorch import (
         PyTorchAdapter,
         check_autograd,
         validate_pytorch,
@@ -86,7 +86,7 @@ def get_jax_adapter():
     Example:
         >>> JAXAdapter, validate_jax, check_vmap_compatible, check_jit_safe = get_jax_adapter()
     """
-    from gpuemu_py.frameworks.jax import (
+    from gpuemu.frameworks.jax import (
         JAXAdapter,
         check_jit_safe,
         check_vmap_compatible,
@@ -108,7 +108,7 @@ def get_tensorflow_adapter():
     Example:
         >>> TensorFlowAdapter, validate_tensorflow, check_keras_layer = get_tensorflow_adapter()
     """
-    from gpuemu_py.frameworks.tensorflow import (
+    from gpuemu.frameworks.tensorflow import (
         TensorFlowAdapter,
         check_keras_layer,
         validate_tensorflow,

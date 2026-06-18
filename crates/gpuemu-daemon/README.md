@@ -9,8 +9,8 @@
 `gpuemu-daemon` is the long-running process that does the actual correctness work:
 op-schema-aware input generation, an fp64 reference oracle, per-op calibrated tolerances,
 static PTX/SASS lint, and durable failure storage. Clients — the
-[`gpuemu`](https://crates.io/crates/gpuemu-cli) CLI, the
-[`gpuemu-py`](https://pypi.org/project/gpuemu-py/) Python package, and the VS Code
+[`gpuemu`](https://crates.io/crates/gpuemu) CLI, the
+[`gpuemu`](https://pypi.org/project/gpuemu/) Python package, and the VS Code
 extension — talk to it over IPC (NNG / Unix sockets).
 
 ---
@@ -46,7 +46,7 @@ cargo install gpuemu-daemon
 gpuemu-daemon
 ```
 
-Most users never invoke the daemon directly — the [`gpuemu`](https://crates.io/crates/gpuemu-cli)
+Most users never invoke the daemon directly — the [`gpuemu`](https://crates.io/crates/gpuemu)
 CLI starts and manages it for you (`gpuemu daemon start`), and the Python client spawns it on
 demand. Install it standalone when you want to run the engine as a service, in a container, or
 behind your own client.

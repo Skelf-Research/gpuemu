@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 
 import numpy as np
 
-from gpuemu_py.frameworks.base import FrameworkAdapter
+from gpuemu.frameworks.base import FrameworkAdapter
 
 if TYPE_CHECKING:
     import jax
     import jax.numpy as jnp
 
-    from gpuemu_py.client import Client
+    from gpuemu.client import Client
 
 
 class ValidationError(Exception):

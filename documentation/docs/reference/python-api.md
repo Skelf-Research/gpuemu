@@ -1,11 +1,11 @@
 # Python API Reference
 
-Complete reference for the `gpuemu-py` Python client library. This package provides
+Complete reference for the `gpuemu` Python client library. This package provides
 a high-level interface for communicating with the gpuemu daemon, running validations,
 fuzz testing, and managing results.
 
 ```bash
-pip install gpuemu-py
+pip install gpuemu
 ```
 
 ---
@@ -30,7 +30,7 @@ Client(socket_path: str | None = None, timeout_ms: int = 30000)
 The `Client` class supports the context manager protocol for automatic cleanup:
 
 ```python
-from gpuemu_py import Client
+from gpuemu import Client
 
 with Client() as client:
     result = client.ping()
@@ -313,7 +313,7 @@ Metadata needed to exactly reproduce a test case.
 A convenience context manager that wraps op execution with automatic validation.
 
 ```python
-from gpuemu_py.validation import validate_op
+from gpuemu.validation import validate_op
 
 with validate_op("softmax", inputs={"logits": x}) as ctx:
     output = my_softmax(x)
@@ -598,4 +598,4 @@ Return recommended tolerance values based on dtype and operation type.
 
 ## Auto-generated API Documentation
 
-::: gpuemu_py.client.Client
+::: gpuemu.client.Client

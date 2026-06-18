@@ -166,7 +166,7 @@ backed by four measured studies (P1–P4).
 === "PyTorch"
 
     ```python
-    from gpuemu_py.frameworks.pytorch import validate_pytorch
+    from gpuemu.frameworks.pytorch import validate_pytorch
 
     with validate_pytorch(client, "my_op", {"x": x}) as ctx:
         ctx["output"] = my_custom_op(x)
@@ -175,7 +175,7 @@ backed by four measured studies (P1–P4).
 === "JAX"
 
     ```python
-    from gpuemu_py.frameworks.jax import validate_jax
+    from gpuemu.frameworks.jax import validate_jax
 
     with validate_jax(client, "my_op", {"x": x}) as ctx:
         ctx["output"] = my_custom_op(x)
@@ -184,7 +184,7 @@ backed by four measured studies (P1–P4).
 === "TensorFlow"
 
     ```python
-    from gpuemu_py.frameworks.tensorflow import validate_tensorflow
+    from gpuemu.frameworks.tensorflow import validate_tensorflow
 
     with validate_tensorflow(client, "my_op", {"x": x}) as ctx:
         ctx["output"] = my_custom_op(x)

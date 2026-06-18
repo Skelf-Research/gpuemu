@@ -268,9 +268,9 @@ gpuemu fuzz --op fused_gelu --iterations 500
 ### Python fuzzing with diverse shapes
 
 ```python
-from gpuemu_py.validate import fuzz_shapes, fuzz_dtypes, fuzz_layouts
-from gpuemu_py.frameworks.pytorch import validate_pytorch
-from gpuemu_py.client import Client
+from gpuemu.validate import fuzz_shapes, fuzz_dtypes, fuzz_layouts
+from gpuemu.frameworks.pytorch import validate_pytorch
+from gpuemu.client import Client
 
 client = Client()
 
@@ -290,7 +290,7 @@ for batch, seq, hidden in fuzz_shapes(
 Memory layout bugs are a common source of kernel failures. Test with contiguous, strided, and transposed inputs:
 
 ```python
-from gpuemu_py.validate import fuzz_layouts
+from gpuemu.validate import fuzz_layouts
 
 base_shape = (8, 256, 512)
 

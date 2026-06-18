@@ -6,7 +6,7 @@ Validating JAX primitives and custom ops with gpuemu.
 
 ```bash
 gpuemu init --name jax-validation --framework jax
-pip install gpuemu-py[jax]
+pip install gpuemu[jax]
 ```
 
 ## JAX-Specific Features
@@ -14,7 +14,7 @@ pip install gpuemu-py[jax]
 ### vmap Compatibility
 
 ```python
-from gpuemu_py.frameworks.jax import check_vmap_compatible
+from gpuemu.frameworks.jax import check_vmap_compatible
 
 def my_op(x):
     return jnp.sin(x)
@@ -25,7 +25,7 @@ assert check_vmap_compatible(my_op, {"x": jnp.ones((4, 10))})
 ### JIT Safety
 
 ```python
-from gpuemu_py.frameworks.jax import check_jit_safe
+from gpuemu.frameworks.jax import check_jit_safe
 
 assert check_jit_safe(my_op, {"x": jnp.ones(10)})
 ```

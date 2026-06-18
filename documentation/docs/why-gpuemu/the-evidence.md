@@ -17,14 +17,16 @@ teardown. Every flagged failure replays byte-for-byte from a saved input snapsho
 **Question.** How many LLM-generated kernels that pass the one-shape `torch.allclose`
 oracle actually contain bugs that surface under op-schema-aware fuzzing?
 
-**Setup.** 26-op corpus: 15 correct controls + 9 LLM-style buggy variants of real Triton
-kernels (softmax, GeLU, SiLU, RMSNorm, l2norm, leaky_relu, matmul, attention,
-flash-attention) + 2 sanity controls. Each kernel fuzzed at 30 iterations on each of 5
-GPU classes via a vast.ai harness.
+**Setup.** 24-op single-GPU corpus (15 controls + 9 LLM-style buggy variants of real
+Triton kernels: softmax, GeLU, SiLU, RMSNorm, l2norm, leaky_relu, matmul, attention),
+extended to 26 ops by adding a flash-attention pair for the cross-GPU sweep. Each
+kernel fuzzed at 30 iterations.
 
-**Headline result.** The fuzz oracle catches **9 / 9** LLM-style bugs with **0 / 15**
-false positives on controls — across **all 5** GPU classes (RTX 3060, A10, L40S,
-A100 SXM4, H100 NVL). The field-standard oracle would have shipped every one.
+**Headline result.** On the single-GPU corpus the fuzz oracle catches **9 / 9**
+LLM-style bugs with **0 / 15** false positives on controls. The extended 26-op
+corpus catches **10 / 10** LLM-style bugs with **0 / 16** false positives on each of
+the 5 GPU classes (RTX 3060, A10, L40S, A100 SXM4, H100 NVL). The field-standard
+oracle would have shipped every one.
 
 **Why this matters.** This is the operational meaning of "correctness illusion": every
 buggy kernel is a benchmark "pass" and a gpuemu fail. Replace the oracle, catch the bug.

@@ -75,7 +75,7 @@ those leaderboards have not been stress-tested against the bug families
 
 Every default in gpuemu is anchored to a measured number from a controlled study, not a
 folkloric value. We didn't pick "adversarial values" as a default because we liked the
-name — we picked it because it scored **99% bug recall** in a seven-strategy ablation
+name — we picked it because it scored **93% bug recall** in a seven-strategy ablation
 across 26 operators (P3, [the evidence](the-evidence.md#p3-test-input-generation)). We
 didn't pick p95-of-controls × 1.5 as the tolerance because it sounded principled — we
 measured that it raised bug recall from 65% to 82% over the field-standard

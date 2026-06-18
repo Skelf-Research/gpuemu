@@ -48,8 +48,10 @@ contains:
 | **Missing normalisation** | attention without `1/√D` | Saturates softmax differently; one shape looks correct |
 | **Online-softmax rescale** | flash-attention forgets `acc *= α` after max update | Only wrong when `N > BLOCK_N` |
 
-In a measured 26-op corpus, the standard one-shape oracle **accepts 9 out of 9** of these
-LLM-style buggy kernels as correct.
+In a measured 26-op corpus across five GPU classes (RTX 3060, A10, L40S, A100 SXM4,
+H100 NVL), the standard one-shape oracle **accepts 10 out of 10** of these LLM-style
+buggy kernels as correct. The same 26-op corpus measured with the seeded oracle catches
+10 out of 10 with 0 false positives on the 16 correct controls (P1).
 
 ## Why it matters: silent correctness regressions ship at LLM scale
 
@@ -142,7 +144,7 @@ The first question a champion gets asked is "isn't this just
 
 | Tool | What it does well | The gap gpuemu fills |
 |---|---|---|
-| `torch.testing.assert_close` | Standard, simple, in-tree | One shape, one dtype, one seed — measured to catch 0/9 LLM-style bugs in our corpus |
+| `torch.testing.assert_close` | Standard, simple, in-tree | One shape, one dtype, one seed; catches 0/10 LLM-style bugs in our 26-op corpus across 5 GPU classes |
 | KernelBench / TritonBench / GEAK / KernelBand / STARK | Leaderboards for LLM-generated kernels | Use the same one-shape oracle inside; not user-facing |
 | NVIDIA Compute Sanitizer | Memcheck / racecheck / synccheck | Memory bugs only — silent numerical wrong-output is invisible to it |
 | Triton built-in testing | Same `assert_close` semantics | No op-schema fuzz, no fp64 reference |
@@ -225,9 +227,9 @@ manuscripts with replayable run records and a kernel corpus.
 
 | # | Study | Headline finding |
 |---|---|---|
-| **P1** | The correctness illusion in LLM-generated GPU kernels | Hardware-free fuzz oracle catches **9/9** LLM-style bugs across 5 GPU classes (RTX 3060, A10, L40S, A100 SXM4, H100 NVL) with **0 false positives** on 15/15 controls |
+| **P1** | The correctness illusion in LLM-generated GPU kernels | Seeded oracle catches **9/9** LLM-style bugs on the 24-op single-GPU corpus and **10/10** on the extended 26-op cross-GPU corpus across 5 GPU classes (RTX 3060, A10, L40S, A100 SXM4, H100 NVL), with **0 false positives** on controls |
 | **P2** | Operator-aware mixed-precision tolerance calibration | A p95-of-controls × 1.5 envelope raises kernel-bug recall from **65% to 82%** over a fixed `atol/rtol`, at zero precision cost |
-| **P3** | Test-input generation for tensor programs | Seven-strategy ablation: adversarial sampling wins at **99% recall**; "regular shapes only" misses **100%** of tail-mask bugs |
+| **P3** | Test-input generation for tensor programs | Seven-strategy ablation: adversarial sampling wins at **93% recall**; "regular shapes only" misses **100%** of tail-mask bugs |
 | **P4** | Static PTX metrics track structural regressions but miss semantic ones | Structural Δregs / Δinstrs predicts Δperf% across 5 GPU classes; semantic bugs compile to **identical PTX** and need the correctness oracle |
 
 Full manuscripts, run-id records, and the replayable corpus live in the

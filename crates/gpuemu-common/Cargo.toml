@@ -3,7 +3,15 @@ name = "gpuemu-common"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Shared types, protocols, and configuration for gpuemu"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Shared types, protocol, deterministic RNG, and config for gpuemu — the GPU-less correctness oracle for deep-learning kernels"
+readme = "README.md"
+keywords = ["gpu", "cuda", "kernel", "validation", "fuzzing"]
+categories = ["development-tools::testing", "science", "data-structures"]
 
 [dependencies]
 serde = { workspace = true }

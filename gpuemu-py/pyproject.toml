@@ -47,9 +47,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/example/gpuemu"
-Documentation = "https://gpuemu.dev/docs"
-Repository = "https://github.com/example/gpuemu"
+Homepage = "https://docs.skelfresearch.com/gpuemu"
+Documentation = "https://docs.skelfresearch.com/gpuemu"
+Repository = "https://github.com/Skelf-Research/gpuemu"
+Issues = "https://github.com/Skelf-Research/gpuemu/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

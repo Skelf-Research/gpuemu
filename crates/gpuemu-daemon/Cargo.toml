@@ -3,7 +3,15 @@ name = "gpuemu-daemon"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "GPU-less validation daemon for deep learning kernels"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "GPU-less validation daemon for deep-learning kernels: fp64 reference oracle, op-schema fuzzing, calibrated tolerances, and PTX/SASS lint"
+readme = "README.md"
+keywords = ["gpu", "cuda", "kernel", "validation", "fuzzing"]
+categories = ["development-tools::testing", "science", "concurrency"]
 
 [[bin]]
 name = "gpuemu-daemon"

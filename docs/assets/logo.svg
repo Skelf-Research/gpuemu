@@ -1,0 +1,18 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="gpuemu logo">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#5b21b6"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <g fill="#ffffff" opacity="0.92">
+    <rect x="14" y="14" width="9" height="9" rx="2"/>
+    <rect x="27.5" y="14" width="9" height="9" rx="2"/>
+    <rect x="41" y="14" width="9" height="9" rx="2"/>
+    <rect x="14" y="27.5" width="9" height="9" rx="2"/>
+    <rect x="27.5" y="27.5" width="9" height="9" rx="2" opacity="0.55"/>
+    <rect x="14" y="41" width="9" height="9" rx="2" opacity="0.55"/>
+  </g>
+  <path d="M30 42.5 L37 49.5 L51 33.5" stroke="#fbbf24" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

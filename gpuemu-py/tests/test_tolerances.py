@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from gpuemu_py.tolerances import (
+from gpuemu.tolerances import (
     DEFAULT_TOLERANCES,
     ToleranceConfig,
     ToleranceProfile,

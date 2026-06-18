@@ -7,7 +7,7 @@ Guide for integrating gpuemu validation into custom op libraries.
 ### PyTorch Custom Ops
 
 ```python
-from gpuemu_py import validate_op
+from gpuemu import validate_op
 
 class MyCustomOp(torch.autograd.Function):
     @staticmethod
@@ -20,7 +20,7 @@ class MyCustomOp(torch.autograd.Function):
 
 ```python
 import pytest
-from gpuemu_py import Client
+from gpuemu import Client
 
 @pytest.fixture
 def gpuemu_client():

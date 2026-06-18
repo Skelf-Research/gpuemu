@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/gpuemu-common",
     "crates/gpuemu-daemon",
-    "crates/gpuemu-cli",
+    "crates/gpuemu",
 ]
 
 [workspace.package]

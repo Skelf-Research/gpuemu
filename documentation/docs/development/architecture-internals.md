@@ -26,7 +26,7 @@ crates/gpuemu-common/src/
 | `types.rs` | Defines `TensorData` (shape, strides, dtype, raw bytes), `ValidationResult`, `FailureReason`, `FuzzConfig`, `ArtifactMetrics`, and all other shared types. Uses `serde` for JSON serialization and `rkyv` for zero-copy storage. |
 | `protocol.rs` | Defines the `Request` and `Response` enums that constitute the IPC wire protocol. Includes `PROTOCOL_VERSION` constant and all error code variants. |
 | `config.rs` | Parses `gpuemu.toml` into `GpuemuConfig`. Handles merging of project, user, and daemon config files. Validates field values and provides defaults. |
-| `rng.rs` | Implements xorshift128+ PRNG with a `Blake2b`-based seed derivation function. The same algorithm is implemented in Python (`gpuemu_py/rng.py`) for cross-language reproducibility. Given the same seed, both implementations produce bit-identical sequences. |
+| `rng.rs` | Implements xorshift128+ PRNG with a `Blake2b`-based seed derivation function. The same algorithm is implemented in Python (`gpuemu/rng.py`) for cross-language reproducibility. Given the same seed, both implementations produce bit-identical sequences. |
 
 ### `gpuemu-daemon`
 
@@ -52,12 +52,12 @@ crates/gpuemu-daemon/src/
 | `artifact.rs` | Contains `PtxParser` and `SassParser` for extracting metrics from compiled GPU artifacts. `PtxParser` uses regex-based extraction to find register counts, spill counts, shared memory usage, local memory usage, and instruction counts from PTX text. `SassParser` (optional) invokes `cuobjdump` as a subprocess for SASS-level analysis. `ArtifactLinter` checks extracted metrics against policy thresholds. `ArtifactDiffer` compares current metrics against a stored baseline and flags regressions. |
 | `storage.rs` | Wraps the sled embedded database. Provides typed get/put/list operations for validation results, failures, baselines, and artifact metrics. Uses `rkyv` for zero-copy serialization of stored values, making reads fast without deserialization overhead. Handles database creation, compaction, and error recovery. |
 
-### `gpuemu-cli`
+### `gpuemu`
 
 The CLI binary crate. Produces the user-facing `gpuemu` command.
 
 ```
-crates/gpuemu-cli/src/
+crates/gpuemu/src/
 ├── main.rs         # Entry point, clap argument parsing, subcommand dispatch
 ├── report.rs       # Output formatting: text, JSON, JUnit XML
 ├── debug/
@@ -239,7 +239,7 @@ pub struct FuzzConfig {
 The fuzzer uses **xorshift128+** as its core PRNG, seeded via **Blake2b** hash derivation. This design enables two critical properties:
 
 1. **Deterministic**: Given the same seed, the fuzzer produces identical test cases on every run.
-2. **Cross-language**: The same algorithm is implemented in both Rust (`gpuemu-common/src/rng.rs`) and Python (`gpuemu_py/rng.py`), producing bit-identical sequences. This means a failure seed from the CLI can be reproduced in Python, and vice versa.
+2. **Cross-language**: The same algorithm is implemented in both Rust (`gpuemu-common/src/rng.rs`) and Python (`gpuemu/rng.py`), producing bit-identical sequences. This means a failure seed from the CLI can be reproduced in Python, and vice versa.
 
 The seed derivation chain:
 
@@ -305,10 +305,10 @@ Compares current artifact metrics against a named baseline. Reports regressions 
 
 ## Python Package Structure
 
-The Python client (`gpuemu-py`) provides programmatic access to the daemon and framework-specific adapters.
+The Python client (`gpuemu`) provides programmatic access to the daemon and framework-specific adapters.
 
 ```
-gpuemu_py/
+gpuemu/
 ├── __init__.py         # Package exports
 ├── client.py           # GpuemuClient: NNG REQ socket, send/receive, protocol handling
 ├── validate.py         # validate_op(), test case generation, result parsing

@@ -45,15 +45,15 @@ cargo build --release
 Install the Python client for programmatic access:
 
 ```bash
-pip install gpuemu-py
+pip install gpuemu
 ```
 
 Or with framework-specific extras:
 
 ```bash
-pip install gpuemu-py[pytorch]   # PyTorch support
-pip install gpuemu-py[jax]       # JAX support
-pip install gpuemu-py[all]       # All frameworks
+pip install gpuemu[pytorch]   # PyTorch support
+pip install gpuemu[jax]       # JAX support
+pip install gpuemu[all]       # All frameworks
 ```
 
 ## VS Code Extension

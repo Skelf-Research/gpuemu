@@ -37,9 +37,9 @@ gpuemu/
 ├── crates/
 │   ├── gpuemu-common/      # Shared types, protocol, config, RNG
 │   ├── gpuemu-daemon/      # Daemon server, validator, executor, fuzzer, storage
-│   └── gpuemu-cli/         # CLI entry point, debug REPL, init scaffolding, reports
+│    └── gpuemu/             # CLI entry point, debug REPL, init scaffolding, reports
 ├── gpuemu-py/              # Python client library
-│   ├── gpuemu_py/          # Package source
+│   ├── gpuemu/          # Package source
 │   │   ├── client.py       # IPC client
 │   │   ├── validate.py     # Test generation
 │   │   ├── rng.py          # Cross-language RNG
@@ -84,7 +84,7 @@ The resulting binaries are:
 
 | Binary | Location | Crate |
 |--------|----------|-------|
-| `gpuemu` | `target/debug/gpuemu` or `target/release/gpuemu` | `gpuemu-cli` |
+| `gpuemu` | `target/debug/gpuemu` or `target/release/gpuemu` | `gpuemu` |
 | `gpuemu-daemon` | `target/debug/gpuemu-daemon` or `target/release/gpuemu-daemon` | `gpuemu-daemon` |
 
 ### Python Client
@@ -130,7 +130,7 @@ This runs tests across all three crates (58 tests total). To run tests for a spe
 ```bash
 cargo test -p gpuemu-common
 cargo test -p gpuemu-daemon
-cargo test -p gpuemu-cli
+cargo test -p gpuemu
 ```
 
 ### Python Tests

@@ -24,7 +24,7 @@ Long-running service that:
 - Executes reference scripts
 - Coordinates fuzz testing
 
-### Python Client (`gpuemu-py`)
+### Python Client (`gpuemu`)
 Python library for programmatic access. Framework-specific adapters for PyTorch, JAX, TensorFlow.
 
 ## Communication
@@ -43,5 +43,5 @@ Results stored in sled embedded database at `~/.gpuemu/db/`.
 crates/
 ├── gpuemu-common/   # Shared types, protocol, config
 ├── gpuemu-daemon/   # Daemon implementation
-└── gpuemu-cli/      # CLI implementation
+ └── gpuemu/          # CLI implementation
 ```

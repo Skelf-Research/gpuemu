@@ -19,7 +19,7 @@ class TestJAXAdapter:
     @pytest.fixture
     def adapter(self):
         """Create a JAXAdapter instance."""
-        from gpuemu_py.frameworks.jax import JAXAdapter
+        from gpuemu.frameworks.jax import JAXAdapter
 
         return JAXAdapter()
 
@@ -82,7 +82,7 @@ class TestCheckVmapCompatible:
 
     def test_simple_vmap_compatible(self):
         """Test vmap compatibility for simple operations."""
-        from gpuemu_py.frameworks.jax import check_vmap_compatible
+        from gpuemu.frameworks.jax import check_vmap_compatible
 
         def simple_op(x):
             return jnp.sin(x)
@@ -92,7 +92,7 @@ class TestCheckVmapCompatible:
 
     def test_elementwise_ops(self):
         """Test vmap compatibility for elementwise operations."""
-        from gpuemu_py.frameworks.jax import check_vmap_compatible
+        from gpuemu.frameworks.jax import check_vmap_compatible
 
         def op(x):
             return x ** 2 + jnp.cos(x)
@@ -102,7 +102,7 @@ class TestCheckVmapCompatible:
 
     def test_matmul(self):
         """Test vmap compatibility for matrix operations."""
-        from gpuemu_py.frameworks.jax import check_vmap_compatible
+        from gpuemu.frameworks.jax import check_vmap_compatible
 
         def matmul_op(x, y):
             return jnp.dot(x, y)
@@ -113,7 +113,7 @@ class TestCheckVmapCompatible:
 
     def test_single_batch(self):
         """Test with batch size 1 (should pass trivially)."""
-        from gpuemu_py.frameworks.jax import check_vmap_compatible
+        from gpuemu.frameworks.jax import check_vmap_compatible
 
         def op(x):
             return x * 2
@@ -127,7 +127,7 @@ class TestCheckJitSafe:
 
     def test_simple_jit_safe(self):
         """Test JIT safety for simple operations."""
-        from gpuemu_py.frameworks.jax import check_jit_safe
+        from gpuemu.frameworks.jax import check_jit_safe
 
         def simple_op(x):
             return jnp.sin(x)
@@ -137,7 +137,7 @@ class TestCheckJitSafe:
 
     def test_pure_functions(self):
         """Test JIT safety for pure functions."""
-        from gpuemu_py.frameworks.jax import check_jit_safe
+        from gpuemu.frameworks.jax import check_jit_safe
 
         def pure_op(x, y):
             return x * y + jnp.exp(x)
@@ -152,7 +152,7 @@ class TestCheckGradSafe:
 
     def test_differentiable_function(self):
         """Test grad safety for differentiable functions."""
-        from gpuemu_py.frameworks.jax import check_grad_safe
+        from gpuemu.frameworks.jax import check_grad_safe
 
         def op(x):
             return jnp.sum(x ** 2)
@@ -162,7 +162,7 @@ class TestCheckGradSafe:
 
     def test_multi_input(self):
         """Test grad safety with multiple inputs."""
-        from gpuemu_py.frameworks.jax import check_grad_safe
+        from gpuemu.frameworks.jax import check_grad_safe
 
         def op(x, y):
             return jnp.sum(x * y)
@@ -179,7 +179,7 @@ class TestValidateJaxPrimitive:
 
     def test_correct_implementation(self):
         """Test validation of correct primitive implementation."""
-        from gpuemu_py.frameworks.jax import validate_jax_primitive
+        from gpuemu.frameworks.jax import validate_jax_primitive
 
         def my_sin(x):
             return jnp.sin(x)
@@ -202,7 +202,7 @@ class TestValidateJaxPrimitive:
 
     def test_incorrect_forward(self):
         """Test validation catches incorrect forward pass."""
-        from gpuemu_py.frameworks.jax import validate_jax_primitive
+        from gpuemu.frameworks.jax import validate_jax_primitive
 
         def wrong_sin(x):
             return jnp.cos(x)  # Wrong!
@@ -225,7 +225,7 @@ class TestCheckPmapCompatible:
 
     def test_simple_op(self):
         """Test pmap compatibility for simple operations."""
-        from gpuemu_py.frameworks.jax import check_pmap_compatible
+        from gpuemu.frameworks.jax import check_pmap_compatible
 
         def simple_op(x):
             return x * 2
@@ -242,7 +242,7 @@ class TestLazyImport:
 
     def test_get_jax_adapter(self):
         """Test get_jax_adapter returns correct types."""
-        from gpuemu_py import get_jax_adapter
+        from gpuemu import get_jax_adapter
 
         JAXAdapter, validate_jax, check_vmap_compatible, check_jit_safe = (
             get_jax_adapter()
@@ -255,7 +255,7 @@ class TestLazyImport:
 
     def test_direct_import(self):
         """Test direct import from submodule."""
-        from gpuemu_py.frameworks.jax import (
+        from gpuemu.frameworks.jax import (
             JAXAdapter,
             check_jit_safe,
             check_vmap_compatible,

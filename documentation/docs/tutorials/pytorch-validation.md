@@ -21,7 +21,7 @@ pip install ./gpuemu-py[torch]
 
     ```bash
     gpuemu daemon status          # Should show "running"
-    python -c "import torch; import gpuemu_py; print('ready')"
+    python -c "import torch; import gpuemu; print('ready')"
     ```
 
 ---
@@ -146,8 +146,8 @@ The `validate_pytorch()` context manager is the primary way to validate a single
 
 ```python title="validate_single.py"
 import torch
-from gpuemu_py import Client
-from gpuemu_py.frameworks.pytorch import validate_pytorch
+from gpuemu import Client
+from gpuemu.frameworks.pytorch import validate_pytorch
 
 client = Client()
 
@@ -202,8 +202,8 @@ The context manager handles the following steps:
 Use `fuzz_pytorch_op()` to automatically generate randomized inputs and stress-test your op across many shapes, dtypes, and value ranges.
 
 ```python title="fuzz_matmul.py"
-from gpuemu_py import Client
-from gpuemu_py.frameworks.pytorch import fuzz_pytorch_op
+from gpuemu import Client
+from gpuemu.frameworks.pytorch import fuzz_pytorch_op
 
 client = Client()
 
@@ -236,7 +236,7 @@ Setting `check_backward=True` enables gradient validation on every fuzz iteratio
 For the simplest possible fuzzing workflow, use `client.fuzz_op_client_side()`. This requires no separate op function -- it reads the op configuration directly from `gpuemu.toml`.
 
 ```python title="fuzz_drop_in.py"
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 
@@ -266,7 +266,7 @@ gpuemu provides two specialized tools for validating gradients in PyTorch ops.
 `check_autograd()` compares PyTorch's autograd gradients against a finite-difference approximation. This catches errors in custom backward implementations.
 
 ```python title="check_gradients.py"
-from gpuemu_py.frameworks.pytorch import check_autograd
+from gpuemu.frameworks.pytorch import check_autograd
 
 x = torch.randn(4, 64, requires_grad=True, dtype=torch.float64)
 
@@ -290,7 +290,7 @@ assert result.passed, f"Gradient check failed: {result.message}"
 If your op implements a custom `torch.autograd.Function`, use `validate_custom_autograd_function()` for a comprehensive check of both the forward and backward passes.
 
 ```python title="validate_autograd_function.py"
-from gpuemu_py.frameworks.pytorch import validate_custom_autograd_function
+from gpuemu.frameworks.pytorch import validate_custom_autograd_function
 
 
 class MyCustomOp(torch.autograd.Function):
@@ -330,7 +330,7 @@ This validates:
 When a fuzz run discovers a failure, gpuemu records the seed that produced it. You can reproduce any failure deterministically.
 
 ```python title="reproduce_failure.py"
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 
@@ -360,7 +360,7 @@ gpuemu test --seed 123456
 Once you have a failing seed, use `client.minimize()` to find a smaller input that still triggers the failure. This makes debugging significantly easier.
 
 ```python title="minimize_failure.py"
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 

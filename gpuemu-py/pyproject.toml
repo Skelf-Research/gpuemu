@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gpuemu-py"
+name = "gpuemu"
 version = "0.1.0"
 description = "Python client for gpuemu GPU-less validation"
 readme = "README.md"
@@ -43,7 +43,7 @@ tensorflow = [
     "tensorflow>=2.10",
 ]
 all = [
-    "gpuemu-py[torch,jax,tensorflow]",
+    "gpuemu[torch,jax,tensorflow]",
 ]
 
 [project.urls]
@@ -54,4 +54,4 @@ Issues = "https://github.com/Skelf-Research/gpuemu/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gpuemu_py*"]
+include = ["gpuemu*"]

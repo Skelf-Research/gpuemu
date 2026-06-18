@@ -188,7 +188,7 @@ class Client:
         """Ensure we have a connection to the daemon."""
         if not HAS_PYNNG:
             raise ImportError(
-                "pynng is required for gpuemu-py. Install with: pip install pynng"
+                "pynng is required for gpuemu. Install with: pip install pynng"
             )
 
         if self._socket is None:

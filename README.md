@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/skelfresearch/gpuemu/actions"><img src="https://img.shields.io/github/actions/workflow/status/skelfresearch/gpuemu/ci.yml?branch=main&style=flat-square&logo=github" alt="CI"></a>
   <a href="https://crates.io/crates/gpuemu"><img src="https://img.shields.io/crates/v/gpuemu?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
-  <a href="https://pypi.org/project/gpuemu-py/"><img src="https://img.shields.io/pypi/v/gpuemu-py?style=flat-square&logo=python&logoColor=white" alt="PyPI"></a>
+  <a href="https://pypi.org/project/gpuemu/"><img src="https://img.shields.io/pypi/v/gpuemu?style=flat-square&logo=python&logoColor=white" alt="PyPI"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=gpuemu.gpuemu"><img src="https://img.shields.io/visual-studio-marketplace/v/gpuemu.gpuemu?style=flat-square&logo=visualstudiocode&logoColor=white&label=VS%20Code" alt="VS Code"></a>
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?style=flat-square" alt="License"></a>
 </p>
@@ -91,7 +91,7 @@ LaTeX manuscripts, run-id records on B2, and a kernel corpus you can replay).
 cargo install gpuemu
 
 # Python client
-pip install gpuemu-py
+pip install gpuemu
 
 # VS Code extension (optional)
 code --install-extension gpuemu.gpuemu
@@ -100,7 +100,7 @@ code --install-extension gpuemu.gpuemu
 ### Validate a kernel
 
 ```python
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 
@@ -233,10 +233,10 @@ Validation failures appear as red squiggles with code actions:
 
 | Framework | Status | Install |
 |---|---|---|
-| PyTorch | Stable | `pip install gpuemu-py[torch]` |
-| JAX | Stable | `pip install gpuemu-py[jax]` |
-| TensorFlow | Stable | `pip install gpuemu-py[tensorflow]` |
-| Raw CUDA/Triton | Stable | `pip install gpuemu-py` |
+| PyTorch | Stable | `pip install gpuemu[torch]` |
+| JAX | Stable | `pip install gpuemu[jax]` |
+| TensorFlow | Stable | `pip install gpuemu[tensorflow]` |
+| Raw CUDA/Triton | Stable | `pip install gpuemu` |
 
 ---
 

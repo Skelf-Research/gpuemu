@@ -118,8 +118,8 @@ The primary way to validate an op is the `validate_op()` context manager. It cap
 
     ```python
     import torch
-    from gpuemu_py.client import Client
-    from gpuemu_py.frameworks.pytorch import validate_pytorch
+    from gpuemu.client import Client
+    from gpuemu.frameworks.pytorch import validate_pytorch
 
     client = Client()
     x = torch.randn(32, 128)
@@ -135,8 +135,8 @@ The primary way to validate an op is the `validate_op()` context manager. It cap
 
     ```python
     import jax.numpy as jnp
-    from gpuemu_py.client import Client
-    from gpuemu_py.frameworks.jax import validate_jax
+    from gpuemu.client import Client
+    from gpuemu.frameworks.jax import validate_jax
 
     client = Client()
     x = jnp.ones((32, 128))
@@ -149,8 +149,8 @@ The primary way to validate an op is the `validate_op()` context manager. It cap
 
     ```python
     import tensorflow as tf
-    from gpuemu_py.client import Client
-    from gpuemu_py.frameworks.tensorflow import validate_tensorflow
+    from gpuemu.client import Client
+    from gpuemu.frameworks.tensorflow import validate_tensorflow
 
     client = Client()
     x = tf.random.normal((32, 128))
@@ -161,11 +161,11 @@ The primary way to validate an op is the `validate_op()` context manager. It cap
 
 ### The low-level `validate_op()` helper
 
-For framework-agnostic usage or more control, use the generic `validate_op` context manager from `gpuemu_py.validate`:
+For framework-agnostic usage or more control, use the generic `validate_op` context manager from `gpuemu.validate`:
 
 ```python
-from gpuemu_py.client import Client
-from gpuemu_py.validate import validate_op
+from gpuemu.client import Client
+from gpuemu.validate import validate_op
 import numpy as np
 
 client = Client()
@@ -204,7 +204,7 @@ Manual tests with a single shape and dtype are not enough. Use fuzzing to test a
 The `fuzz_shapes()` generator produces all combinations of the dimension values you provide:
 
 ```python
-from gpuemu_py.validate import fuzz_shapes
+from gpuemu.validate import fuzz_shapes
 
 for batch, seq in fuzz_shapes(batch=[1, 2, 4, 8, 16], seq=[64, 128, 256, 512]):
     x = torch.randn(batch, seq, 512)
@@ -217,7 +217,7 @@ for batch, seq in fuzz_shapes(batch=[1, 2, 4, 8, 16], seq=[64, 128, 256, 512]):
 The `fuzz_dtypes()` generator iterates over dtype strings:
 
 ```python
-from gpuemu_py.validate import fuzz_dtypes
+from gpuemu.validate import fuzz_dtypes
 
 for dtype in fuzz_dtypes(["float32", "float16", "bfloat16"]):
     x = torch.randn(8, 256, dtype=getattr(torch, dtype))
@@ -228,7 +228,7 @@ for dtype in fuzz_dtypes(["float32", "float16", "bfloat16"]):
 ### Combined shape + dtype fuzzing
 
 ```python
-from gpuemu_py.validate import fuzz_shapes, fuzz_dtypes
+from gpuemu.validate import fuzz_shapes, fuzz_dtypes
 
 for batch, seq in fuzz_shapes(batch=[1, 4, 16], seq=[64, 256]):
     for dtype in fuzz_dtypes(["float32", "float16"]):
@@ -242,7 +242,7 @@ for batch, seq in fuzz_shapes(batch=[1, 4, 16], seq=[64, 256]):
 For the simplest possible fuzzing integration, use `client.fuzz_op_client_side()`. The daemon generates random inputs, you provide a callable that runs your op, and gpuemu validates every output:
 
 ```python
-from gpuemu_py.client import Client
+from gpuemu.client import Client
 
 client = Client()
 

@@ -22,7 +22,7 @@ This roadmap is structured as staged deliverables that keep the workflow useful 
 - [ ] Basic validation engine (tolerance comparison)
 - [ ] sled storage for results
 - [ ] CLI: `gpuemu daemon start/stop`, `gpuemu test`
-- [ ] Python client: `gpuemu-py` with `validate()` context manager
+- [ ] Python client: `gpuemu` with `validate()` context manager
 
 **Deliverable**: Run a single op validation against CPU reference
 

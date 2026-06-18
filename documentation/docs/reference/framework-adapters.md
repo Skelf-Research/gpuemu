@@ -13,7 +13,7 @@ framework-specific validation checks.
 The abstract base class that all framework adapters implement.
 
 ```python
-from gpuemu_py.adapters.base import FrameworkAdapter
+from gpuemu.adapters.base import FrameworkAdapter
 ```
 
 #### Abstract Methods
@@ -147,7 +147,7 @@ Return the framework name string (e.g., `"pytorch"`, `"jax"`, `"tensorflow"`).
 Utility class for verifying gradient correctness via finite differences.
 
 ```python
-from gpuemu_py.adapters.base import GradientChecker
+from gpuemu.adapters.base import GradientChecker
 
 checker = GradientChecker(adapter=adapter, epsilon=1e-5)
 result = checker.check(fn=my_op, inputs=[x], output_index=0)
@@ -169,7 +169,7 @@ result = checker.check(fn=my_op, inputs=[x], output_index=0)
 ### `PyTorchAdapter`
 
 ```python
-from gpuemu_py.adapters.pytorch import PyTorchAdapter
+from gpuemu.adapters.pytorch import PyTorchAdapter
 ```
 
 Implements `FrameworkAdapter` for PyTorch tensors (`torch.Tensor`).
@@ -297,7 +297,7 @@ Fuzz test a PyTorch op against a reference function.
 ### `JAXAdapter`
 
 ```python
-from gpuemu_py.adapters.jax import JAXAdapter
+from gpuemu.adapters.jax import JAXAdapter
 ```
 
 Implements `FrameworkAdapter` for JAX arrays (`jax.Array`).
@@ -449,7 +449,7 @@ Fuzz test a JAX op against a reference function.
 ### `TensorFlowAdapter`
 
 ```python
-from gpuemu_py.adapters.tensorflow import TensorFlowAdapter
+from gpuemu.adapters.tensorflow import TensorFlowAdapter
 ```
 
 Implements `FrameworkAdapter` for TensorFlow tensors (`tf.Tensor`).
@@ -594,9 +594,9 @@ Fuzz test a TensorFlow op against a reference function.
 ### Cross-Framework Validation
 
 ```python
-from gpuemu_py.adapters.pytorch import PyTorchAdapter, validate_pytorch
-from gpuemu_py.adapters.jax import JAXAdapter, validate_jax
-from gpuemu_py.adapters.tensorflow import TensorFlowAdapter, validate_tensorflow
+from gpuemu.adapters.pytorch import PyTorchAdapter, validate_pytorch
+from gpuemu.adapters.jax import JAXAdapter, validate_jax
+from gpuemu.adapters.tensorflow import TensorFlowAdapter, validate_tensorflow
 import numpy as np
 
 # Define a reference in NumPy
@@ -657,8 +657,8 @@ x_np = np.random.randn(4, 64).astype(np.float32)
 ### Gradient Checking
 
 ```python
-from gpuemu_py.adapters.pytorch import PyTorchAdapter, check_autograd
-from gpuemu_py.adapters.base import GradientChecker
+from gpuemu.adapters.pytorch import PyTorchAdapter, check_autograd
+from gpuemu.adapters.base import GradientChecker
 import torch
 
 adapter = PyTorchAdapter()

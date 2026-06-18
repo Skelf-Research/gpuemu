@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from gpuemu_py.frameworks.base import FrameworkAdapter
+from gpuemu.frameworks.base import FrameworkAdapter
 
 if TYPE_CHECKING:
     import tensorflow as tf
 
-    from gpuemu_py.client import Client
+    from gpuemu.client import Client
 
 
 class ValidationError(Exception):

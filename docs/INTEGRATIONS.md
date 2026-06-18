@@ -98,8 +98,8 @@ if __name__ == "__main__":
 
 ```python
 import torch
-from gpuemu_py import Client
-from gpuemu_py.frameworks.pytorch import fuzz_pytorch_op
+from gpuemu import Client
+from gpuemu.frameworks.pytorch import fuzz_pytorch_op
 
 client = Client()
 
@@ -140,8 +140,8 @@ For when you have specific inputs you want to test:
 
 ```python
 import torch
-from gpuemu_py import Client
-from gpuemu_py.frameworks.pytorch import validate_pytorch, PyTorchAdapter
+from gpuemu import Client
+from gpuemu.frameworks.pytorch import validate_pytorch, PyTorchAdapter
 
 client = Client()
 adapter = PyTorchAdapter()
@@ -160,7 +160,7 @@ result = client.validate_op("flash_attention", np_inputs, np_output)
 ### Gradient Validation
 
 ```python
-from gpuemu_py.frameworks.pytorch import check_autograd, validate_custom_autograd_function
+from gpuemu.frameworks.pytorch import check_autograd, validate_custom_autograd_function
 
 # Validate autograd correctness against numerical finite differences
 x = torch.randn(10, requires_grad=True)
@@ -243,8 +243,8 @@ if __name__ == "__main__":
 
 ```python
 import jax.numpy as jnp
-from gpuemu_py import Client
-from gpuemu_py.frameworks.jax import fuzz_jax_op
+from gpuemu import Client
+from gpuemu.frameworks.jax import fuzz_jax_op
 
 client = Client()
 
@@ -275,7 +275,7 @@ print(f"vmap failures: {len(result['vmap_failures'])}")
 ### Single-Shot Validation
 
 ```python
-from gpuemu_py.frameworks.jax import validate_jax, JAXAdapter
+from gpuemu.frameworks.jax import validate_jax, JAXAdapter
 
 client = Client()
 adapter = JAXAdapter()
@@ -292,7 +292,7 @@ result = client.validate_op("custom_primitive", {"x": adapter.to_numpy(x)}, adap
 ### JAX-Specific Checks
 
 ```python
-from gpuemu_py.frameworks.jax import (
+from gpuemu.frameworks.jax import (
     check_jit_safe,       # JIT doesn't change numerics
     check_vmap_compatible, # vmap works and matches element-wise
     check_pmap_compatible, # pmap works across devices
@@ -371,8 +371,8 @@ if __name__ == "__main__":
 
 ```python
 import tensorflow as tf
-from gpuemu_py import Client
-from gpuemu_py.frameworks.tensorflow import fuzz_tensorflow_op
+from gpuemu import Client
+from gpuemu.frameworks.tensorflow import fuzz_tensorflow_op
 
 client = Client()
 
@@ -403,7 +403,7 @@ print(f"XLA failures: {len(result['xla_failures'])}")
 ### Single-Shot Validation
 
 ```python
-from gpuemu_py.frameworks.tensorflow import validate_tensorflow, TensorFlowAdapter
+from gpuemu.frameworks.tensorflow import validate_tensorflow, TensorFlowAdapter
 
 client = Client()
 adapter = TensorFlowAdapter()
@@ -422,7 +422,7 @@ with validate_tensorflow(client, "custom_matmul", {"x": x}, check_gradient=True)
 ### TensorFlow-Specific Checks
 
 ```python
-from gpuemu_py.frameworks.tensorflow import (
+from gpuemu.frameworks.tensorflow import (
     check_keras_layer,       # validate a Keras layer's forward+backward
     check_tf_function_safe,  # @tf.function doesn't change results
     check_xla_compatible,    # XLA compilation works and matches
@@ -514,7 +514,7 @@ jobs:
       - name: Install gpuemu
         run: |
           curl -sSL https://gpuemu.dev/install.sh | sh
-          pip install gpuemu-py
+          pip install gpuemu
 
       - name: Start daemon
         run: gpuemu daemon start --background
@@ -545,9 +545,9 @@ When ops are shared across frameworks, register them once with multiple framewor
 ```python
 import torch
 import jax.numpy as jnp
-from gpuemu_py import Client
-from gpuemu_py.frameworks.pytorch import fuzz_pytorch_op
-from gpuemu_py.frameworks.jax import fuzz_jax_op
+from gpuemu import Client
+from gpuemu.frameworks.pytorch import fuzz_pytorch_op
+from gpuemu.frameworks.jax import fuzz_jax_op
 
 client = Client()
 

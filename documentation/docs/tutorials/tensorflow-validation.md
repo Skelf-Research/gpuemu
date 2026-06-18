@@ -21,7 +21,7 @@ pip install ./gpuemu-py[tensorflow]
 
     ```bash
     gpuemu daemon status          # Should show "running"
-    python -c "import tensorflow as tf; import gpuemu_py; print('ready')"
+    python -c "import tensorflow as tf; import gpuemu; print('ready')"
     ```
 
 ---
@@ -145,8 +145,8 @@ The `validate_tensorflow()` context manager validates a single TensorFlow op inv
 
 ```python title="validate_single.py"
 import tensorflow as tf
-from gpuemu_py import Client
-from gpuemu_py.frameworks.tensorflow import validate_tensorflow
+from gpuemu import Client
+from gpuemu.frameworks.tensorflow import validate_tensorflow
 
 client = Client()
 
@@ -214,7 +214,7 @@ TensorFlow operations need to work correctly across several execution contexts: 
 `check_keras_layer()` validates that a Keras layer produces correct outputs across different input shapes and batch sizes, including during training and inference modes.
 
 ```python title="check_keras.py"
-from gpuemu_py.frameworks.tensorflow import check_keras_layer
+from gpuemu.frameworks.tensorflow import check_keras_layer
 
 
 class MyGeluLayer(tf.keras.layers.Layer):
@@ -238,7 +238,7 @@ assert result.passed, f"Keras layer check failed: {result.message}"
 `check_tf_function_safe()` verifies that your op produces the same results when run eagerly versus under `@tf.function`. Differences indicate reliance on Python-level side effects or tracing-time values.
 
 ```python title="check_tf_function.py"
-from gpuemu_py.frameworks.tensorflow import check_tf_function_safe
+from gpuemu.frameworks.tensorflow import check_tf_function_safe
 
 result = check_tf_function_safe(
     func=my_custom_gelu,
@@ -254,7 +254,7 @@ assert result.passed, f"@tf.function check failed: {result.message}"
 `check_xla_compatible()` verifies that your op compiles and runs correctly under XLA via `tf.function(jit_compile=True)`.
 
 ```python title="check_xla.py"
-from gpuemu_py.frameworks.tensorflow import check_xla_compatible
+from gpuemu.frameworks.tensorflow import check_xla_compatible
 
 result = check_xla_compatible(
     func=my_custom_gelu,
@@ -270,7 +270,7 @@ assert result.passed, f"XLA compatibility check failed: {result.message}"
 `validate_custom_gradient()` validates ops that use `@tf.custom_gradient` to define custom gradient functions.
 
 ```python title="validate_custom_grad.py"
-from gpuemu_py.frameworks.tensorflow import validate_custom_gradient
+from gpuemu.frameworks.tensorflow import validate_custom_gradient
 
 
 @tf.custom_gradient
@@ -318,8 +318,8 @@ This validates:
 Use `fuzz_tensorflow_op()` to stress-test your op with randomized inputs, optionally including gradient and XLA checks on every iteration.
 
 ```python title="fuzz_gelu.py"
-from gpuemu_py import Client
-from gpuemu_py.frameworks.tensorflow import fuzz_tensorflow_op
+from gpuemu import Client
+from gpuemu.frameworks.tensorflow import fuzz_tensorflow_op
 
 client = Client()
 

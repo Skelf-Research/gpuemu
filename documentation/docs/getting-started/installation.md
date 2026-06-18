@@ -115,7 +115,7 @@ The compiled binary will be at `target/release/gpuemu`.
 
 ---
 
-## 2. Python Client (`gpuemu-py`)
+## 2. Python Client (`gpuemu`)
 
 The Python client provides programmatic access to the gpuemu daemon, including framework-specific adapters for PyTorch, JAX, and TensorFlow.
 
@@ -136,7 +136,7 @@ This installs the core library with the following dependencies:
 
 !!! tip "Using a virtual environment"
 
-    It is strongly recommended to install `gpuemu-py` inside a virtual environment:
+    It is strongly recommended to install `gpuemu` inside a virtual environment:
 
     ```bash
     python3 -m venv .venv
@@ -229,7 +229,7 @@ gpuemu 0.1.0 (release)
 ### Python client
 
 ```bash
-python -c "import gpuemu_py; print('ok')"
+python -c "import gpuemu; print('ok')"
 ```
 
 You should see:
@@ -259,7 +259,7 @@ ok
 | `pip install ./gpuemu-py` fails | Ensure you are using Python 3.9+ and pip is up to date: `pip install --upgrade pip`. |
 | `gpuemu version` says "command not found" | Ensure `~/.gpuemu/bin` (or wherever you placed the binary) is in your `PATH`. Open a new terminal after editing your shell config. |
 | VS Code extension does not activate | Check that the `gpuemu` CLI is on your `PATH` and that you are running VS Code 1.85 or higher. |
-| `import gpuemu_py` raises `ModuleNotFoundError` | Make sure you installed the package in the same Python environment you are running. Check `which python` and `pip list | grep gpuemu`. |
+| `import gpuemu` raises `ModuleNotFoundError` | Make sure you installed the package in the same Python environment you are running. Check `which python` and `pip list | grep gpuemu`. |
 
 ---
 

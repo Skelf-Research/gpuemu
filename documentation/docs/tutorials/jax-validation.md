@@ -21,7 +21,7 @@ pip install ./gpuemu-py[jax]
 
     ```bash
     gpuemu daemon status          # Should show "running"
-    python -c "import jax; import gpuemu_py; print('ready')"
+    python -c "import jax; import gpuemu; print('ready')"
     ```
 
 ---
@@ -150,8 +150,8 @@ The `validate_jax()` context manager validates a single JAX op invocation agains
 ```python title="validate_single.py"
 import jax
 import jax.numpy as jnp
-from gpuemu_py import Client
-from gpuemu_py.frameworks.jax import validate_jax
+from gpuemu import Client
+from gpuemu.frameworks.jax import validate_jax
 
 client = Client()
 
@@ -214,7 +214,7 @@ JAX programs are expected to work correctly under several transformations: `jit`
 `check_jit_safe()` verifies that your op produces the same results when run eagerly versus under `jax.jit`. Differences indicate reliance on Python-level side effects or tracing-time values.
 
 ```python title="check_jit.py"
-from gpuemu_py.frameworks.jax import check_jit_safe
+from gpuemu.frameworks.jax import check_jit_safe
 
 result = check_jit_safe(
     func=my_custom_softmax,
@@ -230,7 +230,7 @@ assert result.passed, f"JIT safety check failed: {result.message}"
 `check_vmap_compatible()` verifies that your op can be batched with `jax.vmap` and produces correct results across the batch dimension.
 
 ```python title="check_vmap.py"
-from gpuemu_py.frameworks.jax import check_vmap_compatible
+from gpuemu.frameworks.jax import check_vmap_compatible
 
 result = check_vmap_compatible(
     func=my_custom_softmax,
@@ -246,7 +246,7 @@ assert result.passed, f"vmap check failed: {result.message}"
 `check_pmap_compatible()` verifies that your op works correctly under `jax.pmap` for multi-device execution. On a single-device machine, this simulates multi-device behavior.
 
 ```python title="check_pmap.py"
-from gpuemu_py.frameworks.jax import check_pmap_compatible
+from gpuemu.frameworks.jax import check_pmap_compatible
 
 result = check_pmap_compatible(
     func=my_custom_softmax,
@@ -262,7 +262,7 @@ assert result.passed, f"pmap check failed: {result.message}"
 `check_grad_safe()` verifies that `jax.grad` can be computed for your op and that the resulting gradients are finite and consistent with a numerical approximation.
 
 ```python title="check_grad.py"
-from gpuemu_py.frameworks.jax import check_grad_safe
+from gpuemu.frameworks.jax import check_grad_safe
 
 # Use a scalar-output wrapper for grad (JAX requires scalar output)
 def scalar_softmax(x):
@@ -293,7 +293,7 @@ assert result.passed, f"Gradient check failed: {result.message}"
 If you have implemented a custom JAX primitive (using `jax.core.Primitive`), use `validate_jax_primitive()` for a comprehensive validation that covers the forward pass, JVP rule, and vmap rule in one call.
 
 ```python title="validate_primitive.py"
-from gpuemu_py.frameworks.jax import validate_jax_primitive
+from gpuemu.frameworks.jax import validate_jax_primitive
 
 result = validate_jax_primitive(
     client,
@@ -321,8 +321,8 @@ This validates:
 Use `fuzz_jax_op()` to stress-test your op with randomized inputs across many shapes and dtypes, optionally including vmap and JIT checks on every iteration.
 
 ```python title="fuzz_softmax.py"
-from gpuemu_py import Client
-from gpuemu_py.frameworks.jax import fuzz_jax_op
+from gpuemu import Client
+from gpuemu.frameworks.jax import fuzz_jax_op
 
 client = Client()
 

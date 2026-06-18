@@ -12,7 +12,7 @@ cargo install gpuemu
 curl -sSL https://gpuemu.dev/install.sh | sh
 
 # Install Python client
-pip install gpuemu-py
+pip install gpuemu
 
 # Start the daemon
 gpuemu daemon start
@@ -81,7 +81,7 @@ bfloat16 = 1e-3
 ```python
 # test_model.py
 import torch
-from gpuemu_py import Client, validate, fuzz_shapes
+from gpuemu import Client, validate, fuzz_shapes
 
 # Connect to daemon
 client = Client()
@@ -144,7 +144,7 @@ jobs:
       - name: Install gpuemu
         run: |
           curl -sSL https://gpuemu.dev/install.sh | sh
-          pip install gpuemu-py
+          pip install gpuemu
 
       - name: Start daemon
         run: gpuemu daemon start --background
@@ -247,7 +247,7 @@ if __name__ == "__main__":
 ```python
 # test_flash_attn.py
 import torch
-from gpuemu_py import Client, validate_op, fuzz_shapes
+from gpuemu import Client, validate_op, fuzz_shapes
 
 client = Client()
 

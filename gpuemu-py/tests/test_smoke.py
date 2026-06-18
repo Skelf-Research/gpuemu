@@ -1,4 +1,4 @@
-"""Smoke tests for gpuemu-py package import and basic functionality."""
+"""Smoke tests for gpuemu package import and basic functionality."""
 
 import base64
 import json
@@ -9,7 +9,7 @@ import pytest
 
 def test_import_version():
     """Package version is accessible."""
-    from gpuemu_py import __version__
+    from gpuemu import __version__
 
     assert isinstance(__version__, str)
     assert __version__ == "0.1.0"
@@ -17,7 +17,7 @@ def test_import_version():
 
 def test_import_client():
     """Client class is importable."""
-    from gpuemu_py import Client, ClientError
+    from gpuemu import Client, ClientError
 
     assert Client is not None
     assert ClientError is not None
@@ -25,28 +25,28 @@ def test_import_client():
 
 def test_import_rng():
     """RNG module is importable."""
-    from gpuemu_py import SeededRng, derive_seed, generate_seed
+    from gpuemu import SeededRng, derive_seed, generate_seed
 
     assert SeededRng is not None
 
 
 def test_import_validate():
     """Validation utilities are importable."""
-    from gpuemu_py import validate, validate_op, FuzzConfig, SeededFuzzer
+    from gpuemu import validate, validate_op, FuzzConfig, SeededFuzzer
 
     assert validate is not None
 
 
 def test_import_tolerances():
     """Tolerance utilities are importable."""
-    from gpuemu_py import ToleranceConfig, get_recommended_tolerance
+    from gpuemu import ToleranceConfig, get_recommended_tolerance
 
     assert ToleranceConfig is not None
 
 
 def test_rng_cross_language_compatibility():
     """RNG output matches the Rust xorshift128+ implementation."""
-    from gpuemu_py.rng import SeededRng, _splitmix64
+    from gpuemu.rng import SeededRng, _splitmix64
 
     assert _splitmix64(42) == 13679457532755275413
     assert _splitmix64(43) == 13432527470776545160
@@ -65,7 +65,7 @@ def test_rng_cross_language_compatibility():
 
 def test_client_encode_decode_tensor():
     """Tensor encoding/decoding round-trips correctly."""
-    from gpuemu_py import Client
+    from gpuemu import Client
 
     arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
     encoded = Client._encode_tensor(arr)
@@ -77,7 +77,7 @@ def test_client_encode_decode_tensor():
 
 def test_client_dtype_mapping():
     """Dtype mapping covers all common types."""
-    from gpuemu_py import Client
+    from gpuemu import Client
 
     for np_dtype, proto_str in [
         (np.float16, "float16"),
@@ -101,7 +101,7 @@ def test_client_dtype_mapping():
 
 def test_client_bfloat16_mapping():
     """BFloat16 maps to 'bfloat16' protocol string."""
-    from gpuemu_py import Client
+    from gpuemu import Client
 
     result = Client._numpy_dtype_to_protocol("bfloat16")
     assert result == "bfloat16"
@@ -109,7 +109,7 @@ def test_client_bfloat16_mapping():
 
 def test_seeded_fuzzer_iterator():
     """SeededFuzzer iterator produces deterministic test cases."""
-    from gpuemu_py import FuzzConfig, SeededFuzzer
+    from gpuemu import FuzzConfig, SeededFuzzer
 
     config = FuzzConfig(
         seed=12345,
@@ -135,7 +135,7 @@ def test_seeded_fuzzer_iterator():
 
 def test_protocol_version_constant():
     """PROTOCOL_VERSION is defined and is an integer."""
-    from gpuemu_py.client import PROTOCOL_VERSION
+    from gpuemu.client import PROTOCOL_VERSION
 
     assert isinstance(PROTOCOL_VERSION, int)
     assert PROTOCOL_VERSION >= 1

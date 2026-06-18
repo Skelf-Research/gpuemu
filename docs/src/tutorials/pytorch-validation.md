@@ -6,7 +6,7 @@ Step-by-step guide to validating PyTorch ops with gpuemu.
 
 ```bash
 gpuemu init --name pytorch-validation --framework pytorch
-pip install gpuemu-py[pytorch]
+pip install gpuemu[pytorch]
 ```
 
 ## Example: Validating a Custom Softmax

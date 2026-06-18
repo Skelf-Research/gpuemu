@@ -1,7 +1,7 @@
 # gpuemu (CLI)
 
-[![Crates.io](https://img.shields.io/crates/v/gpuemu-cli?style=flat-square&logo=rust&color=orange)](https://crates.io/crates/gpuemu-cli)
-[![docs.rs](https://img.shields.io/docsrs/gpuemu-cli?style=flat-square&logo=docsdotrs)](https://docs.rs/gpuemu-cli)
+[![Crates.io](https://img.shields.io/crates/v/gpuemu?style=flat-square&logo=rust&color=orange)](https://crates.io/crates/gpuemu)
+[![docs.rs](https://img.shields.io/docsrs/gpuemu?style=flat-square&logo=docsdotrs)](https://docs.rs/gpuemu)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?style=flat-square)](https://github.com/Skelf-Research/gpuemu)
 
 **The `gpuemu` command line — catch silently-wrong GPU kernels before they ship.**
@@ -27,7 +27,7 @@ for the P1–P4 evidence.
 ## Install
 
 ```bash
-cargo install gpuemu-cli      # installs the `gpuemu` binary
+cargo install gpuemu      # installs the `gpuemu` binary
 ```
 
 ```bash
@@ -84,8 +84,8 @@ into GitHub Actions, GitLab CI, Codecov, and Sonar.
 
 ## Prefer Python?
 
-The [`gpuemu-py`](https://pypi.org/project/gpuemu-py/) client gives you the same engine from
-PyTorch / JAX / TensorFlow with `pip install gpuemu-py`.
+The [`gpuemu`](https://pypi.org/project/gpuemu/) client gives you the same engine from
+PyTorch / JAX / TensorFlow with `pip install gpuemu`.
 
 ## Documentation
 

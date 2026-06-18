@@ -63,8 +63,8 @@ execution_mode = "client_side"   # This is the default
 
 ```python title="client_side_example.py"
 import numpy as np
-from gpuemu_py import Client
-from gpuemu_py.validate import validate_op
+from gpuemu import Client
+from gpuemu.validate import validate_op
 
 client = Client()
 
@@ -82,8 +82,8 @@ print(f"Passed: {result.passed}, max_diff: {result.max_diff:.2e}")
 Or using the context manager:
 
 ```python title="client_side_context.py"
-from gpuemu_py import Client
-from gpuemu_py.validate import validate_op
+from gpuemu import Client
+from gpuemu.validate import validate_op
 
 client = Client()
 x = np.random.randn(32, 128).astype(np.float32)
@@ -98,7 +98,7 @@ with validate_op(client, "my_relu", inputs={"x": x}) as ctx:
 For fuzz testing with Client-Side mode, use `fuzz_op_client_side()`. The daemon generates test cases, but the client executes the op:
 
 ```python title="client_side_fuzz.py"
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 
@@ -148,7 +148,7 @@ execution_mode = "daemon_orchestrated"
 ### Python example -- single test case
 
 ```python title="daemon_orchestrated_single.py"
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 
@@ -178,7 +178,7 @@ print(f"Passed: {result.passed}, max_diff: {result.max_diff:.2e}")
 ### Python example -- batch test cases
 
 ```python title="daemon_orchestrated_batch.py"
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 

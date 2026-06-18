@@ -246,7 +246,7 @@ The Python client provides utilities for empirically determining appropriate tol
 Runs both implementations on random inputs and measures the actual differences to determine safe tolerances:
 
 ```python title="calibration_example.py"
-from gpuemu_py.tolerances import calibrate_tolerance
+from gpuemu.tolerances import calibrate_tolerance
 
 def reference_softmax(x):
     e_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
@@ -275,7 +275,7 @@ print(f"Recommended: atol={tol.atol:.2e}, rtol={tol.rtol:.2e}")
 Returns pre-calibrated tolerances with operation-specific multipliers:
 
 ```python title="recommended_tolerance.py"
-from gpuemu_py.tolerances import get_recommended_tolerance
+from gpuemu.tolerances import get_recommended_tolerance
 
 # Basic usage
 tol = get_recommended_tolerance("float32")
@@ -305,7 +305,7 @@ Certain operations accumulate more numerical error than element-wise ops. `get_r
 For convenience, the Python client provides pre-configured tolerance profiles:
 
 ```python title="tolerance_profiles.py"
-from gpuemu_py.tolerances import ToleranceProfile
+from gpuemu.tolerances import ToleranceProfile
 
 # For unit testing (moderately strict)
 testing = ToleranceProfile.for_testing()
@@ -327,8 +327,8 @@ tol = cross.get("float32")  # Automatically scaled for framework differences
 A complete validation workflow combining tolerance calibration, custom invariants, and failure handling:
 
 ```python title="complete_validation.py"
-from gpuemu_py import Client
-from gpuemu_py.tolerances import get_recommended_tolerance
+from gpuemu import Client
+from gpuemu.tolerances import get_recommended_tolerance
 import numpy as np
 
 client = Client()

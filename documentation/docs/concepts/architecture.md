@@ -12,7 +12,7 @@ gpuemu consists of four independent components that communicate via IPC and CLI 
 |-----------|----------|-----------|------|
 | **Daemon** (`gpuemu-daemon`) | Rust | NNG REP socket on Unix domain socket | Validation server: runs reference scripts, compares outputs, stores results in sled |
 | **CLI** (`gpuemu`) | Rust (clap) | Spawns daemon, sends NNG REQ messages | User-facing command-line interface for testing, fuzzing, CI, and daemon control |
-| **Python Client** (`gpuemu-py`) | Python (pynng, numpy) | NNG REQ socket | Programmatic validation from Python; framework adapters for PyTorch, JAX, TensorFlow |
+| **Python Client** (`gpuemu`) | Python (pynng, numpy) | NNG REQ socket | Programmatic validation from Python; framework adapters for PyTorch, JAX, TensorFlow |
 | **VS Code Extension** (`vscode-gpuemu`) | TypeScript | Invokes CLI commands | Editor integration: diagnostics, code actions, test explorer, on-save validation |
 
 ```mermaid
@@ -125,7 +125,7 @@ Policies control CI behavior. The `PolicyConfig` defines whether to fail on regr
 
 ### 7. CLI + Client Libraries
 
-The CLI (`gpuemu`) provides subcommands for daemon control, validation, fuzzing, reproduction, minimization, artifact inspection, and CI. The Python client (`gpuemu-py`) exposes the same functionality as a programmatic API, with framework-specific adapters.
+The CLI (`gpuemu`) provides subcommands for daemon control, validation, fuzzing, reproduction, minimization, artifact inspection, and CI. The Python client (`gpuemu`) exposes the same functionality as a programmatic API, with framework-specific adapters.
 
 ---
 

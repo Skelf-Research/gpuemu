@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 
-from gpuemu_py.frameworks.base import FrameworkAdapter
+from gpuemu.frameworks.base import FrameworkAdapter
 
 if TYPE_CHECKING:
     import torch
 
-    from gpuemu_py.client import Client, ValidationResult
+    from gpuemu.client import Client, ValidationResult
 
 
 class ValidationError(Exception):

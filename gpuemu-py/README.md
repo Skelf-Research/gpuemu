@@ -1,17 +1,17 @@
-<h1 align="center">gpuemu-py</h1>
+<h1 align="center">gpuemu</h1>
 
 <p align="center">
   <strong>Catch silently-wrong GPU kernels from Python — before they reach production.</strong>
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/gpuemu-py/"><img src="https://img.shields.io/pypi/v/gpuemu-py?style=flat-square&logo=python&logoColor=white" alt="PyPI"></a>
-  <a href="https://pypi.org/project/gpuemu-py/"><img src="https://img.shields.io/pypi/pyversions/gpuemu-py?style=flat-square&logo=python&logoColor=white" alt="Python versions"></a>
+  <a href="https://pypi.org/project/gpuemu/"><img src="https://img.shields.io/pypi/v/gpuemu?style=flat-square&logo=python&logoColor=white" alt="PyPI"></a>
+  <a href="https://pypi.org/project/gpuemu/"><img src="https://img.shields.io/pypi/pyversions/gpuemu?style=flat-square&logo=python&logoColor=white" alt="Python versions"></a>
   <a href="https://github.com/Skelf-Research/gpuemu/blob/main/LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?style=flat-square" alt="License"></a>
   <a href="https://docs.skelfresearch.com/gpuemu"><img src="https://img.shields.io/badge/docs-skelfresearch.com-informational?style=flat-square" alt="Docs"></a>
 </p>
 
-`gpuemu-py` is the Python client for [**gpuemu**](https://github.com/Skelf-Research/gpuemu),
+`gpuemu` is the Python client for [**gpuemu**](https://github.com/Skelf-Research/gpuemu),
 a GPU-less correctness oracle for deep-learning kernels. It plugs into PyTorch, JAX, and
 TensorFlow and validates your CUDA/Triton kernels against a high-precision fp64 reference
 with op-schema-aware, adversarial inputs — finding the silent numerical bugs that
@@ -32,26 +32,26 @@ LLM-style buggy kernels — tail-mask leaks, accumulator-scale bugs, missing nor
 online-softmax rescale errors — as "correct". Those kernels then ship and run at scale:
 GPU-hours wasted on broken work, quality regressions that survive months of green CI.
 
-`gpuemu-py` replaces that one-line check with an operator-aware regime that caught
+`gpuemu` replaces that one-line check with an operator-aware regime that caught
 **100%** of those bugs across 5 GPU classes with **zero** false positives on controls (P1).
 
 ## Install
 
 ```bash
-pip install gpuemu-py            # core client
-pip install gpuemu-py[torch]     # + PyTorch adapter
-pip install gpuemu-py[jax]       # + JAX adapter
-pip install gpuemu-py[tensorflow]
-pip install gpuemu-py[all]       # everything
+pip install gpuemu            # core client
+pip install gpuemu[torch]     # + PyTorch adapter
+pip install gpuemu[jax]       # + JAX adapter
+pip install gpuemu[tensorflow]
+pip install gpuemu[all]       # everything
 ```
 
 The client talks to the `gpuemu` daemon over IPC and will start one on demand. To run the
-daemon yourself, install the CLI: `cargo install gpuemu-cli`.
+daemon yourself, install the CLI: `cargo install gpuemu`.
 
 ## Quick start
 
 ```python
-from gpuemu_py import Client
+from gpuemu import Client
 
 client = Client()
 
@@ -98,7 +98,7 @@ small = client.minimize(seed)
 | **Op-schema-aware fuzzing** | Boundary + regular + adversarial input distributions, per op |
 | **Calibrated tolerances** | `calibrate_tolerance()` / `get_recommended_tolerance()` — p95-of-controls × 1.5 envelope (P2: 65% → 82% recall) |
 | **Deterministic RNG** | `SeededRng` reproduces failures byte-for-byte, identical to the Rust daemon |
-| **Framework adapters** | PyTorch, JAX, TensorFlow — `from gpuemu_py.frameworks.pytorch import validate_pytorch` |
+| **Framework adapters** | PyTorch, JAX, TensorFlow — `from gpuemu.frameworks.pytorch import validate_pytorch` |
 | **Static lint** | `client.lint_kernel(...)` surfaces PTX/SASS register pressure and spills |
 
 ## The research backing (P1–P4)

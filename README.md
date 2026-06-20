@@ -227,7 +227,7 @@ manuscripts with replayable run records and a kernel corpus.
 
 | # | Study | Headline finding |
 |---|---|---|
-| **P1** | The correctness illusion in LLM-generated GPU kernels | Seeded oracle catches **9/9** LLM-style bugs on the 24-op single-GPU corpus and **10/10** on the extended 26-op cross-GPU corpus across 5 GPU classes (RTX 3060, A10, L40S, A100 SXM4, H100 NVL), with **0 false positives** on controls |
+| **P1** ([arXiv:2606.20128](https://arxiv.org/abs/2606.20128)) | The correctness illusion in LLM-generated GPU kernels | Seeded oracle catches **9/9** LLM-style bugs on the 24-op single-GPU corpus and **10/10** on the extended 26-op cross-GPU corpus across 5 GPU classes (RTX 3060, A10, L40S, A100 SXM4, H100 NVL), with **0 false positives** on controls |
 | **P2** | Operator-aware mixed-precision tolerance calibration | A p95-of-controls × 1.5 envelope raises kernel-bug recall from **65% to 82%** over a fixed `atol/rtol`, at zero precision cost |
 | **P3** | Test-input generation for tensor programs | Seven-strategy ablation: adversarial sampling wins at **93% recall**; "regular shapes only" misses **100%** of tail-mask bugs |
 | **P4** | Static PTX metrics track structural regressions but miss semantic ones | Structural Δregs / Δinstrs predicts Δperf% across 5 GPU classes; semantic bugs compile to **identical PTX** and need the correctness oracle |

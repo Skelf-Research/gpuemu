@@ -13,6 +13,7 @@ teardown. Every flagged failure replays byte-for-byte from a saved input snapsho
 ## P1 — The correctness illusion
 
 > *"The correctness illusion in LLM-generated GPU kernels"* — Sarkar, 2026.
+> [arXiv:2606.20128](https://arxiv.org/abs/2606.20128).
 
 **Question.** How many LLM-generated kernels that pass the one-shape `torch.allclose`
 oracle actually contain bugs that surface under op-schema-aware fuzzing?

@@ -219,7 +219,10 @@ pub struct ServerState {
 impl ServerState {
     /// Create new server state.
     pub fn new(storage: Storage, config: GpuemuConfig) -> Self {
-        let executor = Executor::new(ExecutorConfig::default());
+        let executor = Executor::new(ExecutorConfig {
+            oracle_fp64: config.validation.oracle_fp64,
+            ..ExecutorConfig::default()
+        });
 
         Self {
             storage,
@@ -390,7 +393,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
             let reference_path = Path::new(&op_config.reference);
             let reference_result = state_read
                 .executor
-                .run_reference(reference_path, &inputs, &kwargs)
+                .run_reference(reference_path, &inputs, &kwargs, true)
                 .await;
 
             let reference = match reference_result {
@@ -587,7 +590,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 let reference_path = std::path::Path::new(&op_config.reference);
                 let reference_result = state_read
                     .executor
-                    .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new())
+                    .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new(), true)
                     .await;
 
                 let reference = match reference_result {
@@ -632,7 +635,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                 let op_script_path = std::path::Path::new(op_script);
                                 let op_result = state_read
                                     .executor
-                                    .run_reference(op_script_path, &test_case.inputs, &std::collections::HashMap::new())
+                                    .run_reference(op_script_path, &test_case.inputs, &std::collections::HashMap::new(), false)
                                     .await;
                                 match op_result {
                                     Ok(r) => r,
@@ -868,7 +871,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                             let reference_path = Path::new(&op_config.reference);
                             let reference_result = state_read
                                 .executor
-                                .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new())
+                                .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new(), true)
                                 .await;
 
                             match reference_result {
@@ -945,7 +948,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                             let reference_path = Path::new(&op_config.reference);
                             let reference_result = state_read
                                 .executor
-                                .run_reference(reference_path, &scaled_inputs, &std::collections::HashMap::new())
+                                .run_reference(reference_path, &scaled_inputs, &std::collections::HashMap::new(), true)
                                 .await;
 
                             match reference_result {
@@ -1259,7 +1262,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                         let s_read = state_clone.read().await;
                         let reference_result = s_read
                             .executor
-                            .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new())
+                            .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new(), true)
                             .await;
 
                         let reference = match reference_result {
@@ -1290,7 +1293,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                     Some(op_script) => {
                                         let op_script_path = std::path::Path::new(op_script);
                                         match s_read.executor
-                                            .run_reference(op_script_path, &test_case.inputs, &std::collections::HashMap::new())
+                                            .run_reference(op_script_path, &test_case.inputs, &std::collections::HashMap::new(), false)
                                             .await
                                         {
                                             Ok(r) => r,
@@ -1556,7 +1559,7 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
             let reference_path = Path::new(&op_config.reference);
             let reference_result = state_read
                 .executor
-                .run_reference(reference_path, &inputs, &kwargs)
+                .run_reference(reference_path, &inputs, &kwargs, true)
                 .await;
 
             let reference = match reference_result {

@@ -44,8 +44,13 @@ impl Validator {
             });
         }
 
-        // Check dtype match
-        if output.dtype != reference.dtype {
+        // Check dtype match. The fp64-oracle path legitimately compares a
+        // lower-precision output against an fp64 reference, so a float/float
+        // dtype difference is expected there and not a mismatch.
+        let is_oracle = is_float_dtype(output.dtype)
+            && is_float_dtype(reference.dtype)
+            && output.dtype != reference.dtype;
+        if output.dtype != reference.dtype && !is_oracle {
             failures.push(ValidationFailure {
                 kind: FailureKind::DTypeMismatch,
                 message: format!(
@@ -141,6 +146,20 @@ impl Validator {
             _ => "float32",
         };
         let tolerance = self.config.get_tolerance(dtype_str);
+
+        // fp64-oracle path: the reference is a different (higher) float
+        // precision than the output. Upcast both to f64 and compare, keyed to
+        // the *output* dtype's tolerance (the output's precision sets the bar).
+        if output.dtype != reference.dtype
+            && is_float_dtype(output.dtype)
+            && is_float_dtype(reference.dtype)
+        {
+            if let (Some(o64), Some(r64)) =
+                (decode_floats_to_f64(output), decode_floats_to_f64(reference))
+            {
+                return compare_f64_slices(&o64, &r64, tolerance);
+            }
+        }
 
         let mut max_diff: f64 = 0.0;
         let mut max_rel_diff: f64 = 0.0;
@@ -620,6 +639,78 @@ pub(crate) fn bytemuck_cast_slice_mut<T: bytemuck::Pod>(bytes: &mut [u8]) -> &mu
 // Add bytemuck dependency
 use bytemuck;
 
+/// Whether a dtype is a floating-point type.
+pub(crate) fn is_float_dtype(d: DType) -> bool {
+    matches!(
+        d,
+        DType::Float16 | DType::BFloat16 | DType::Float32 | DType::Float64
+    )
+}
+
+/// Decode any float tensor's element values to `f64`. Returns `None` for
+/// non-float dtypes. Used by the fp64-oracle comparison path, where the
+/// reference is computed in fp64 and the output may be a lower precision.
+pub(crate) fn decode_floats_to_f64(t: &TensorData) -> Option<Vec<f64>> {
+    match t.dtype {
+        DType::Float32 => Some(
+            bytemuck_cast_slice::<f32>(&t.data)
+                .iter()
+                .map(|v| *v as f64)
+                .collect(),
+        ),
+        DType::Float64 => Some(bytemuck_cast_slice::<f64>(&t.data).to_vec()),
+        DType::Float16 => Some(
+            bytemuck_cast_slice::<u16>(&t.data)
+                .iter()
+                .map(|b| f16_to_f32(*b) as f64)
+                .collect(),
+        ),
+        DType::BFloat16 => Some(
+            bytemuck_cast_slice::<u16>(&t.data)
+                .iter()
+                .map(|b| bf16_to_f32(*b) as f64)
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+/// Compare two already-decoded f64 value slices under an absolute tolerance.
+/// Returns `(max_diff, max_rel_diff, failures)` with the first tolerance
+/// breach recorded (mirrors the per-dtype `compare_values` arms).
+fn compare_f64_slices(
+    output: &[f64],
+    reference: &[f64],
+    tolerance: f64,
+) -> (f64, f64, Vec<ValidationFailure>) {
+    let mut max_diff: f64 = 0.0;
+    let mut max_rel_diff: f64 = 0.0;
+    let mut failures = Vec::new();
+    let mut first_failure_idx: Option<usize> = None;
+
+    for (i, (o, r)) in output.iter().zip(reference.iter()).enumerate() {
+        let diff = (*o - *r).abs();
+        let rel_diff = if *r != 0.0 { diff / r.abs() } else { diff };
+        max_diff = max_diff.max(diff);
+        max_rel_diff = max_rel_diff.max(rel_diff);
+        if diff > tolerance && first_failure_idx.is_none() {
+            first_failure_idx = Some(i);
+            failures.push(ValidationFailure {
+                kind: FailureKind::ToleranceExceeded,
+                message: format!(
+                    "Value mismatch at index {} (fp64 oracle): |{:.6e} - {:.6e}| = {:.3e} > tol {:.3e}",
+                    i, o, r, diff, tolerance
+                ),
+                index: Some(i),
+                expected: Some(*r),
+                actual: Some(*o),
+            });
+        }
+    }
+
+    (max_diff, max_rel_diff, failures)
+}
+
 // =============================================================================
 // Float conversions (shared by value comparison, NaN/Inf checks, error stats)
 // =============================================================================
@@ -835,10 +926,23 @@ impl Validator {
         output: &TensorData,
         reference: &TensorData,
     ) -> Option<ErrorStats> {
-        if output.shape != reference.shape || output.dtype != reference.dtype {
+        if output.shape != reference.shape {
             return None;
         }
         let tol = self.tolerance_for(output.dtype);
+        // fp64-oracle path: mixed float precisions. Compute the error
+        // distribution in f64, keyed to the output dtype's tolerance.
+        if output.dtype != reference.dtype {
+            if !(is_float_dtype(output.dtype) && is_float_dtype(reference.dtype)) {
+                return None;
+            }
+            let (o64, r64) = (decode_floats_to_f64(output)?, decode_floats_to_f64(reference)?);
+            let mut acc = StatsAccum::with_capacity(o64.len(), tol);
+            for (a, b) in o64.iter().zip(r64.iter()) {
+                acc.push(*a, *b, f64_ulp(*a, *b));
+            }
+            return Some(acc.finish());
+        }
         match output.dtype {
             DType::Float32 => {
                 let o = bytemuck_cast_slice::<f32>(&output.data);
@@ -917,6 +1021,82 @@ mod tests {
         let result = validator.validate("test", &output, &reference, 123, None);
         assert!(!result.passed);
         assert!(!result.failures.is_empty());
+    }
+
+    fn make_f64_tensor(shape: Vec<usize>, values: Vec<f64>) -> TensorData {
+        let data: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        TensorData::new(shape, DType::Float64, data)
+    }
+
+    fn make_f16_tensor(shape: Vec<usize>, values: Vec<f32>) -> TensorData {
+        // Encode via the round-trip used elsewhere: f32 -> half bits.
+        let data: Vec<u8> = values
+            .iter()
+            .flat_map(|v| {
+                // reuse the daemon's half encoding for test fixtures
+                let bits = v.to_bits();
+                let sign = (bits >> 16) & 0x8000;
+                let half = if v.is_nan() {
+                    (sign | 0x7E00) as u16
+                } else {
+                    let exp = ((bits >> 23) & 0xFF) as i32 - 127 + 15;
+                    let mant = (bits >> 13) & 0x3FF;
+                    if exp <= 0 {
+                        sign as u16
+                    } else if exp >= 31 {
+                        (sign | 0x7C00) as u16
+                    } else {
+                        (sign | ((exp as u32) << 10) | mant) as u16
+                    }
+                };
+                half.to_le_bytes()
+            })
+            .collect();
+        TensorData::new(shape, DType::Float16, data)
+    }
+
+    #[test]
+    fn test_oracle_f32_output_vs_f64_reference_passes() {
+        // fp64 oracle: lower-precision output vs high-precision reference of
+        // the same values should validate without a DTypeMismatch.
+        let validator = Validator::new(ValidationConfig::default());
+        let output = make_f32_tensor(vec![3], vec![1.0, 2.0, 3.0]);
+        let reference = make_f64_tensor(vec![3], vec![1.0, 2.0, 3.0]);
+
+        let result = validator.validate("oracle", &output, &reference, 7, None);
+        assert!(result.passed, "failures: {:?}", result.failures);
+        assert!(!result
+            .failures
+            .iter()
+            .any(|f| f.kind == FailureKind::DTypeMismatch));
+        assert!(result.error_stats.is_some());
+        assert_eq!(result.error_stats.unwrap().count, 3);
+    }
+
+    #[test]
+    fn test_oracle_detects_real_error_against_f64() {
+        // A genuinely wrong output is still caught against the f64 oracle.
+        let validator = Validator::new(ValidationConfig::default());
+        let output = make_f32_tensor(vec![3], vec![1.0, 2.0, 9.0]);
+        let reference = make_f64_tensor(vec![3], vec![1.0, 2.0, 3.0]);
+
+        let result = validator.validate("oracle", &output, &reference, 7, None);
+        assert!(!result.passed);
+        assert!(result
+            .failures
+            .iter()
+            .any(|f| f.kind == FailureKind::ToleranceExceeded));
+    }
+
+    #[test]
+    fn test_oracle_f16_output_vs_f64_reference() {
+        // f16 output vs f64 reference — exercises the half-decode oracle path.
+        let validator = Validator::new(ValidationConfig::default());
+        let output = make_f16_tensor(vec![2], vec![1.0, 2.0]);
+        let reference = make_f64_tensor(vec![2], vec![1.0, 2.0]);
+
+        let result = validator.validate("oracle", &output, &reference, 7, None);
+        assert!(result.passed, "failures: {:?}", result.failures);
     }
 
     #[test]

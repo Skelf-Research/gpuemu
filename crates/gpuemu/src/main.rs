@@ -11,7 +11,7 @@ use gpuemu_common::config::GpuemuConfig;
 use gpuemu_common::protocol::{
     deserialize_response, serialize_request, MinimizeStrategy, Request, Response,
 };
-use gpuemu_common::types::{parse_dtypes, FuzzConfig, LayoutType, ShapeOptions};
+use gpuemu_common::types::{parse_dtypes, FuzzConfig, LayoutType, ShapeOptions, ValueDistribution};
 use gpuemu_common::{default_socket_path, ensure_gpuemu_dir};
 use nng::options::Options;
 use nng::{Protocol, Socket};
@@ -563,6 +563,7 @@ fn handle_test(quick: bool, thorough: bool, seed: Option<u64>) -> Result<()> {
             ),
             layouts: vec![LayoutType::Contiguous, LayoutType::Strided],
             op_schema: None,
+            value_distribution: ValueDistribution::default(),
         };
 
         let request = Request::FuzzOp {
@@ -735,6 +736,7 @@ fn handle_fuzz(
             dtypes,
             layouts,
             op_schema: None,
+            value_distribution: ValueDistribution::default(),
         };
 
         let request = Request::FuzzOp {

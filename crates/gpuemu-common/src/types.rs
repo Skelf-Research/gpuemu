@@ -493,6 +493,45 @@ impl OpSchema {
     }
 }
 
+/// Element-value sampling strategy, orthogonal to shape/layout fuzzing.
+///
+/// Controls the *values* placed in fuzzed tensors. `Regular` is the historical
+/// uniform distribution and is preserved bit-for-bit (so old seeds reproduce);
+/// `Boundary` and `Adversarial` are the P3 coverage modes that surface the
+/// partial-tile / sign-cancellation / special-value bugs a uniform sample misses.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    SerdeSerialize,
+    SerdeDeserialize,
+)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+pub enum ValueDistribution {
+    /// Uniform in [-10, 10] for floats; small-range ints. The field-standard
+    /// default and the historical behaviour (byte-identical for old seeds).
+    Regular,
+    /// Emphasise edge magnitudes: exact `0`, `±1`, near-denormal tiny values,
+    /// and large finite values — the inputs that expose tail-mask / partial-tile
+    /// and normalisation bugs.
+    Boundary,
+    /// Inject pathological values: `NaN`, `±Inf`, very large/small magnitudes,
+    /// and sign-cancellation pairs, mixed with regular draws.
+    Adversarial,
+}
+
+impl Default for ValueDistribution {
+    fn default() -> Self {
+        ValueDistribution::Regular
+    }
+}
+
 /// Configuration for fuzz testing.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize, SerdeSerialize, SerdeDeserialize)]
 #[archive(check_bytes)]
@@ -509,6 +548,10 @@ pub struct FuzzConfig {
     /// per-input shapes from shared dims instead of one shape for all inputs.
     #[serde(default)]
     pub op_schema: Option<OpSchema>,
+    /// Element-value sampling strategy. Defaults to [`ValueDistribution::Regular`]
+    /// (preserving historical byte-for-byte generation when absent).
+    #[serde(default)]
+    pub value_distribution: ValueDistribution,
 }
 
 impl Default for FuzzConfig {
@@ -523,6 +566,7 @@ impl Default for FuzzConfig {
                 LayoutType::Transposed,
             ],
             op_schema: None,
+            value_distribution: ValueDistribution::Regular,
         }
     }
 }

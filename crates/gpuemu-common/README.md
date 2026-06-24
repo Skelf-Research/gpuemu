@@ -26,10 +26,10 @@ torch.allclose(my_kernel(x), reference(x), atol=1e-5, rtol=1e-2)
 One shape, one dtype, one seed. In a measured 26-op corpus that oracle **accepts 9/9**
 LLM-style buggy kernels — tail-mask leaks, accumulator-scale bugs, missing normalisation,
 online-softmax rescale errors — as "correct". gpuemu replaces it with an
-operator-domain–aware regime: an fp64 reference oracle, op-schema-aware fuzzing,
-per-op calibrated tolerances, and static PTX/SASS lint. See the
+operator-domain–aware regime: a CPU reference oracle, op-schema-aware (shape) fuzzing,
+per-op tolerances, and static PTX/SASS lint. See the
 [full project README](https://github.com/Skelf-Research/gpuemu#readme) for the P1–P4
-evidence.
+evidence and the "Shipped vs. research regime" table marking what ships today.
 
 ## What's in this crate
 

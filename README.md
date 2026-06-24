@@ -72,15 +72,20 @@ gpuemu replaces "allclose on one shape" with an operator-domain–aware correctn
 **The validation step runs without a GPU** (it compares against a high-precision CPU
 reference); only the optional artifact step needs one.
 
-| Capability | What it does | What you gain |
+| Capability | What it does | Status |
 |---|---|---|
-| **fp64 reference oracle** | Validates kernel output against a high-precision CPU reference, per dtype | A real correctness signal — not "it matched on the one shape we happened to try" |
-| **Op-schema-aware fuzzing** | Per-op generator with boundary + regular + adversarial value distributions | Coverage of the partial-tile and edge cases your kernel actually breaks on |
-| **Per-op calibrated tolerances** | A p95-of-controls × 1.5 envelope, fit per op and dtype | Catches real regressions without flagging normal floating-point noise |
-| **Static PTX/SASS lint** | Register pressure, spills, and instruction counts vs a baseline | A performance-regression gate on the compiled artifact |
-| **Reproducible RNG** | Bit-identical xorshift128+ in Rust and Python; exact input snapshots | Every failure replays byte-for-byte from its seed, on any machine |
+| **CPU reference oracle** | Validates kernel output against a CPU reference script, per dtype | ✅ Shipped (fp64-promoted oracle: 🛠 roadmap — see below) |
+| **Op-schema-aware fuzzing** | Per-op generator that samples boundary/edge **shapes** from the op schema | ✅ Shipped for shapes · 🛠 regular/adversarial **value** distributions on the roadmap |
+| **Per-op tolerances** | Per-op, per-dtype tolerances, config-driven | ✅ Shipped (fixed) · 🛠 p95-of-controls × 1.5 calibration on the roadmap |
+| **Static PTX/SASS lint** | Register pressure, spills, and instruction counts vs a baseline | ✅ Shipped |
+| **Reproducible RNG** | Bit-identical xorshift128+ in Rust and Python; exact input snapshots | ✅ Shipped — every failure replays byte-for-byte from its seed |
 
-Every default above is backed by a measured study — see **[Research & evidence](#research--evidence)**.
+> **Shipped vs. research regime.** The rows above mark what the installed daemon/CLI does
+> **today**. The full operator-domain–aware regime measured in the P1–P4 studies — the fp64
+> ground-truth oracle, adversarial value-distribution sampling, the p95×1.5 calibration
+> pipeline, and the 24/26-op corpus — was produced with the
+> [gpuemu research harness][paper-repo] and is being upstreamed into this tree. See
+> **[Research & evidence](#research--evidence)** for the measured findings.
 
 ## What teams gain
 
@@ -123,12 +128,11 @@ from gpuemu import Client
 
 client = Client()
 
-# Fuzz with op-schema-aware inputs and an fp64 reference oracle.
+# Fuzz with op-schema-aware (shape-fuzzed) inputs against the CPU reference oracle.
 results = client.fuzz_op_client_side(
     "flash_attention",
     run_op=lambda inputs: my_flash_attn(inputs["q"], inputs["k"], inputs["v"]),
     iterations=100,
-    value_distribution="adversarial",  # recommended default
 )
 
 print(f"Passed: {results.passed}/{results.total}")

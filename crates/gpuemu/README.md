@@ -7,7 +7,7 @@
 **The `gpuemu` command line — catch silently-wrong GPU kernels before they ship.**
 
 This crate installs the `gpuemu` binary: a single command to fuzz deep-learning kernels
-against an fp64 reference oracle, lint compiled PTX/SASS, gate CI on correctness
+against a CPU reference oracle, lint compiled PTX/SASS, gate CI on correctness
 regressions, and emit signed correctness reports. It's the front door to the
 [gpuemu](https://github.com/Skelf-Research/gpuemu) project — it manages the
 [`gpuemu-daemon`](https://crates.io/crates/gpuemu-daemon) for you.

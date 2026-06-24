@@ -7,7 +7,7 @@
 **The validation engine behind [gpuemu](https://github.com/Skelf-Research/gpuemu) — catch silently-wrong GPU kernels before they reach production, without a GPU.**
 
 `gpuemu-daemon` is the long-running process that does the actual correctness work:
-op-schema-aware input generation, an fp64 reference oracle, per-op calibrated tolerances,
+op-schema-aware (shape) input generation, a CPU reference oracle, per-op tolerances,
 static PTX/SASS lint, and durable failure storage. Clients — the
 [`gpuemu`](https://crates.io/crates/gpuemu) CLI, the
 [`gpuemu`](https://pypi.org/project/gpuemu/) Python package, and the VS Code
@@ -27,12 +27,17 @@ The daemon replaces that one-line check with an operator-domain–aware regime.
 
 ## What the daemon does
 
-| Component (`src/`) | Capability | Measured finding |
+The **Capability** column describes what each `src/` module does **today**. The
+**Research regime (P#)** column links to the corresponding measured study — those findings
+were produced with the [gpuemu research harness](https://github.com/Skelf-Research/gpuemu-paper)
+and mark the regime this daemon is being upstreamed toward; 🛠 flags the parts not yet in this tree.
+
+| Component (`src/`) | Capability (today) | Research regime (P#) |
 |---|---|---|
-| `validator` | fp64 reference oracle — validates kernel output against a high-precision CPU reference per dtype | **P1**: 100% illusion catch on 9/9 LLM-style bugs across 5 GPU classes; 0 false positives on 15/15 controls |
-| `fuzzer` | Op-schema-aware shape generator with boundary + regular + adversarial value distributions | **P3**: 99% bug recall under adversarial values; +28 pp over the field-standard default |
-| `validator` (tolerances) | Per-op p95-of-controls × 1.5 envelope, fit per op/dtype | **P2**: +23 pp recall (65 → 82%) over a single hand-picked `atol/rtol` |
-| `artifact` | Static PTX/SASS lint — register pressure, spills, instruction counts | **P4**: structural Δregs predicts Δperf% across H100/A100/L40S/A10/3060 |
+| `validator` | CPU reference oracle — validates kernel output against a reference script, per-dtype tolerances. 🛠 fp64-promoted ground truth is roadmap. | **P1**: illusion catch on the buggy-kernel corpus, 0 false positives on controls |
+| `fuzzer` | Op-schema-aware **shape** generator — samples boundary/edge dims from the op schema. 🛠 regular/adversarial **value** distributions are roadmap. | **P3**: adversarial value sampling wins on bug recall vs the field-standard default |
+| `validator` (tolerances) | Per-op / per-dtype tolerances, config-driven (fixed). 🛠 p95-of-controls × 1.5 calibration is roadmap. | **P2**: calibrated envelope raises recall (65 → 82%) over a single hand-picked `atol/rtol` |
+| `artifact` | Static PTX/SASS lint — register pressure, spills, instruction counts (regex metrics) | **P4**: structural Δregs predicts Δperf% across H100/A100/L40S/A10/3060 |
 | `executor` | Runs reference + kernel scripts and snapshots exact inputs | Every flagged failure replays byte-for-byte from its seed |
 | `storage` | Durable failure + baseline store (sled) | Reproduce and minimise any past failure |
 | `server` | NNG/Unix-socket IPC server, parallel job execution | Drives CI fan-out from the CLI |

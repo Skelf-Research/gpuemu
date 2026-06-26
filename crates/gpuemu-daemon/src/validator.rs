@@ -1,5 +1,6 @@
 //! Validation engine for comparing outputs against references.
 
+use gpuemu_common::calibration::tolerance_multiplier;
 use gpuemu_common::config::{InvariantConfig, ValidationConfig};
 use gpuemu_common::types::{
     DType, ErrorStats, FailureKind, TensorData, ValidationFailure, ValidationResult,
@@ -75,7 +76,7 @@ impl Validator {
 
         // Compare values
         let (max_diff, max_rel_diff, value_failures) =
-            self.compare_values(output, reference, invariants);
+            self.compare_values(op_name, output, reference, invariants);
         failures.extend(value_failures);
 
         // Check NaN/Inf if configured
@@ -101,7 +102,7 @@ impl Validator {
         let duration_ms = start.elapsed().as_millis() as u64;
 
         // Capture the full element-wise error distribution (float dtypes only).
-        let error_stats = self.compute_error_stats(output, reference);
+        let error_stats = self.compute_error_stats(op_name, output, reference);
 
         if failures.is_empty() {
             debug!(
@@ -134,6 +135,7 @@ impl Validator {
     /// Compare tensor values and return (max_diff, max_rel_diff, failures).
     fn compare_values(
         &self,
+        op_name: &str,
         output: &TensorData,
         reference: &TensorData,
         _invariants: Option<&InvariantConfig>,
@@ -145,7 +147,10 @@ impl Validator {
             DType::Float64 => "float64",
             _ => "float32",
         };
-        let tolerance = self.config.get_tolerance(dtype_str);
+        // Base per-dtype tolerance widened by the op/dtype tolerance class
+        // (fused-op compounding, bf16/fp16 accumulation).
+        let tolerance =
+            self.config.get_tolerance(dtype_str) * tolerance_multiplier(op_name, output.dtype);
 
         // fp64-oracle path: the reference is a different (higher) float
         // precision than the output. Upcast both to f64 and compare, keyed to
@@ -907,8 +912,9 @@ impl StatsAccum {
 }
 
 impl Validator {
-    /// Tolerance for a dtype (mirrors the mapping used in `compare_values`).
-    fn tolerance_for(&self, dtype: DType) -> f64 {
+    /// Tolerance for an `(op, dtype)` pair: the base per-dtype tolerance
+    /// widened by the op/dtype tolerance class. Mirrors `compare_values`.
+    fn tolerance_for(&self, op_name: &str, dtype: DType) -> f64 {
         let s = match dtype {
             DType::Float32 => "float32",
             DType::Float16 => "float16",
@@ -916,20 +922,21 @@ impl Validator {
             DType::Float64 => "float64",
             _ => "float32",
         };
-        self.config.get_tolerance(s)
+        self.config.get_tolerance(s) * tolerance_multiplier(op_name, dtype)
     }
 
     /// Compute the full element-wise error distribution for float outputs.
     /// Returns `None` for non-float dtypes or on shape/length mismatch.
     pub fn compute_error_stats(
         &self,
+        op_name: &str,
         output: &TensorData,
         reference: &TensorData,
     ) -> Option<ErrorStats> {
         if output.shape != reference.shape {
             return None;
         }
-        let tol = self.tolerance_for(output.dtype);
+        let tol = self.tolerance_for(op_name, output.dtype);
         // fp64-oracle path: mixed float precisions. Compute the error
         // distribution in f64, keyed to the output dtype's tolerance.
         if output.dtype != reference.dtype {
@@ -1100,6 +1107,25 @@ mod tests {
     }
 
     #[test]
+    fn test_tolerance_class_admits_fused_op_error() {
+        // A 2e-5 diff exceeds the base float32 tol (1e-5) for a plain op, but
+        // the attention tolerance class (×2.5 -> 2.5e-5) admits it.
+        let validator = Validator::new(ValidationConfig::default());
+        let output = make_f32_tensor(vec![2], vec![1.0, 2.000_02]);
+        let reference = make_f32_tensor(vec![2], vec![1.0, 2.0]);
+
+        let plain = validator.validate("elementwise", &output, &reference, 1, None);
+        assert!(!plain.passed, "plain op should reject a 2e-5 diff at 1e-5 tol");
+
+        let fused = validator.validate("attention", &output, &reference, 1, None);
+        assert!(
+            fused.passed,
+            "attention tolerance class should admit it: {:?}",
+            fused.failures
+        );
+    }
+
+    #[test]
     fn test_validate_shape_mismatch() {
         let config = ValidationConfig::default();
         let validator = Validator::new(config);
@@ -1163,7 +1189,7 @@ mod tests {
         let reference = make_f32_tensor(vec![4], vec![1.0, 2.0, 3.0, 4.0]);
 
         let stats = validator
-            .compute_error_stats(&output, &reference)
+            .compute_error_stats("elementwise", &output, &reference)
             .expect("float stats");
         assert_eq!(stats.count, 4);
         assert_eq!(stats.num_exceeding, 2);

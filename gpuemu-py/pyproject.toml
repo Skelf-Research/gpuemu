@@ -55,3 +55,8 @@ Issues = "https://github.com/Skelf-Research/gpuemu/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gpuemu*"]
+
+[tool.setuptools.package-data]
+# Ship the per-op reference scripts (referenced by filesystem path from
+# gpuemu.toml, not imported) inside the wheel.
+"gpuemu.references" = ["scripts/*.py"]

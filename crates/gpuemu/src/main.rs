@@ -116,6 +116,11 @@ enum Commands {
         /// Show verbose output including input values
         #[arg(short, long)]
         verbose: bool,
+
+        /// Emit a self-contained reproducer JSON (seed + shape/dtype/layout +
+        /// base64 input snapshot) for external tools to consume.
+        #[arg(long)]
+        reproducer: bool,
     },
 
     /// Minimize a failing test case
@@ -342,7 +347,11 @@ fn main() -> Result<()> {
             seed,
             fail_fast,
         } => handle_fuzz(op, iterations, seed, fail_fast),
-        Commands::Reproduce { seed, verbose } => handle_reproduce(seed, verbose),
+        Commands::Reproduce {
+            seed,
+            verbose,
+            reproducer,
+        } => handle_reproduce(seed, verbose, reproducer),
         Commands::Minimize {
             seed,
             strategy,
@@ -798,16 +807,32 @@ fn handle_fuzz(
     Ok(())
 }
 
-fn handle_reproduce(seed: u64, verbose: bool) -> Result<()> {
+fn handle_reproduce(seed: u64, verbose: bool, reproducer: bool) -> Result<()> {
     // Check daemon is running
     if !check_daemon_running() {
         println!("Daemon is not running. Start it with: gpuemu daemon start");
         return Ok(());
     }
 
-    println!("Reproducing failure with seed: {}", seed);
-
     let request = Request::Reproduce { seed };
+
+    // --reproducer: emit only the machine-readable JSON, nothing else.
+    if reproducer {
+        return match send_request(request) {
+            Ok(Response::ReproduceResult { result, .. }) => {
+                let repro = gpuemu_common::replay::Reproducer::from_result(&result);
+                println!("{}", repro.to_json()?);
+                Ok(())
+            }
+            Ok(Response::Error { code, message }) => {
+                anyhow::bail!("Error ({:?}): {}", code, message)
+            }
+            Ok(other) => anyhow::bail!("Unexpected response: {:?}", other),
+            Err(e) => Err(e),
+        };
+    }
+
+    println!("Reproducing failure with seed: {}", seed);
 
     match send_request(request) {
         Ok(Response::ReproduceResult { result, inputs }) => {

@@ -5,6 +5,7 @@
 pub mod calibration;
 pub mod config;
 pub mod protocol;
+pub mod replay;
 pub mod rng;
 pub mod types;
 

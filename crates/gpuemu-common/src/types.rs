@@ -488,8 +488,117 @@ impl OpSchema {
                 inputs: vec![t("input", &["B", "S", "H"])],
                 output: Some(t("out", &["B", "S", "H"])),
             }),
+            // Pure elementwise activations / row-softmax over [B,S,H]. Same
+            // shape family as `elementwise`; named so callers can register a
+            // matching reference and so fuzzing labels are meaningful.
+            "silu" | "gelu" | "softmax" => Some(OpSchema {
+                name: name.to_string(),
+                dims: vec![
+                    dim("B", vec![1, 2, 8, 33]),
+                    dim("S", vec![1, 7, 128, 513]),
+                    dim("H", vec![1, 3, 256, 1025]),
+                ],
+                inputs: vec![t("input", &["B", "S", "H"])],
+                output: Some(t("out", &["B", "S", "H"])),
+            }),
+            // RMSNorm: normalise x[B,S,H] over the last (H) dim, scaled by a
+            // per-channel weight[H]. The shared `H` links the two inputs.
+            "rmsnorm" => Some(OpSchema {
+                name: "rmsnorm".to_string(),
+                dims: vec![
+                    dim("B", vec![1, 2, 8, 33]),
+                    dim("S", vec![1, 7, 128, 513]),
+                    dim("H", vec![1, 3, 256, 1025]),
+                ],
+                inputs: vec![t("x", &["B", "S", "H"]), t("weight", &["H"])],
+                output: Some(t("out", &["B", "S", "H"])),
+            }),
+            // Rotary position embedding over x[B,H,S,D] (D even — only even
+            // candidates so the pair-rotation is well-defined).
+            "rope" => Some(OpSchema {
+                name: "rope".to_string(),
+                dims: vec![
+                    dim("B", vec![1, 2, 5]),
+                    dim("H", vec![1, 3, 8]),
+                    dim("S", vec![1, 2, 17, 128, 257]),
+                    dim("D", vec![8, 16, 64, 128]),
+                ],
+                inputs: vec![t("x", &["B", "H", "S", "D"])],
+                output: Some(t("out", &["B", "H", "S", "D"])),
+            }),
+            // Fused MatMul + activation epilogue: out[M,N] = act(A[M,K]·B[K,N]).
+            // Same shape contract as matmul; distinct names so the reference can
+            // apply the matching epilogue and the fused tolerance class applies.
+            "matmul_silu" | "matmul_gelu" => Some(OpSchema {
+                name: name.to_string(),
+                dims: vec![
+                    dim("M", vec![1, 2, 7, 31, 128, 257]),
+                    dim("K", vec![1, 3, 16, 127, 256]),
+                    dim("N", vec![1, 2, 15, 64, 255]),
+                ],
+                inputs: vec![t("a", &["M", "K"]), t("b", &["K", "N"])],
+                output: Some(t("out", &["M", "N"])),
+            }),
+            // KV-cache attention: query seq-len (Sq, often 1 at decode) differs
+            // from the cached key/value seq-len (Sk). Distinct Sq/Sk dims are
+            // what separate this from the equal-length `attention` schema.
+            "kv_cache_attention" => Some(OpSchema {
+                name: "kv_cache_attention".to_string(),
+                dims: vec![
+                    dim("B", vec![1, 2, 5]),
+                    dim("H", vec![1, 3, 8]),
+                    dim("Sq", vec![1, 2, 16]),
+                    dim("Sk", vec![1, 17, 128, 257]),
+                    dim("D", vec![8, 16, 64, 65]),
+                ],
+                inputs: vec![
+                    t("q", &["B", "H", "Sq", "D"]),
+                    t("k", &["B", "H", "Sk", "D"]),
+                    t("v", &["B", "H", "Sk", "D"]),
+                ],
+                output: Some(t("out", &["B", "H", "Sq", "D"])),
+            }),
             _ => None,
         }
+    }
+}
+
+/// Element-value sampling strategy, orthogonal to shape/layout fuzzing.
+///
+/// Controls the *values* placed in fuzzed tensors. `Regular` is the historical
+/// uniform distribution and is preserved bit-for-bit (so old seeds reproduce);
+/// `Boundary` and `Adversarial` are the P3 coverage modes that surface the
+/// partial-tile / sign-cancellation / special-value bugs a uniform sample misses.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    SerdeSerialize,
+    SerdeDeserialize,
+)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+pub enum ValueDistribution {
+    /// Uniform in [-10, 10] for floats; small-range ints. The field-standard
+    /// default and the historical behaviour (byte-identical for old seeds).
+    Regular,
+    /// Emphasise edge magnitudes: exact `0`, `±1`, near-denormal tiny values,
+    /// and large finite values — the inputs that expose tail-mask / partial-tile
+    /// and normalisation bugs.
+    Boundary,
+    /// Inject pathological values: `NaN`, `±Inf`, very large/small magnitudes,
+    /// and sign-cancellation pairs, mixed with regular draws.
+    Adversarial,
+}
+
+impl Default for ValueDistribution {
+    fn default() -> Self {
+        ValueDistribution::Regular
     }
 }
 
@@ -509,6 +618,10 @@ pub struct FuzzConfig {
     /// per-input shapes from shared dims instead of one shape for all inputs.
     #[serde(default)]
     pub op_schema: Option<OpSchema>,
+    /// Element-value sampling strategy. Defaults to [`ValueDistribution::Regular`]
+    /// (preserving historical byte-for-byte generation when absent).
+    #[serde(default)]
+    pub value_distribution: ValueDistribution,
 }
 
 impl Default for FuzzConfig {
@@ -523,6 +636,7 @@ impl Default for FuzzConfig {
                 LayoutType::Transposed,
             ],
             op_schema: None,
+            value_distribution: ValueDistribution::Regular,
         }
     }
 }
@@ -945,9 +1059,42 @@ mod tests {
 
     #[test]
     fn test_builtin_schemas_present() {
-        for name in ["matmul", "attention", "elementwise"] {
+        for name in [
+            "matmul",
+            "attention",
+            "elementwise",
+            "silu",
+            "gelu",
+            "softmax",
+            "rmsnorm",
+            "rope",
+            "matmul_silu",
+            "matmul_gelu",
+            "kv_cache_attention",
+        ] {
             assert!(OpSchema::builtin(name).is_some(), "missing builtin {name}");
         }
         assert!(OpSchema::builtin("nope").is_none());
+    }
+
+    #[test]
+    fn test_rmsnorm_links_h_dim() {
+        let s = OpSchema::builtin("rmsnorm").unwrap();
+        // weight is 1-D over H; x is [B,S,H]; both share the H dim name.
+        let x = s.inputs.iter().find(|t| t.name == "x").unwrap();
+        let w = s.inputs.iter().find(|t| t.name == "weight").unwrap();
+        assert_eq!(w.dims, vec!["H".to_string()]);
+        assert_eq!(x.dims.last(), Some(&"H".to_string()));
+    }
+
+    #[test]
+    fn test_kv_cache_attention_decouples_seqlens() {
+        let s = OpSchema::builtin("kv_cache_attention").unwrap();
+        let q = s.inputs.iter().find(|t| t.name == "q").unwrap();
+        let k = s.inputs.iter().find(|t| t.name == "k").unwrap();
+        // Query uses Sq, key/value use Sk — the distinguishing feature.
+        assert!(q.dims.contains(&"Sq".to_string()));
+        assert!(k.dims.contains(&"Sk".to_string()));
+        assert!(!k.dims.contains(&"Sq".to_string()));
     }
 }

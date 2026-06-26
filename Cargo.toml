@@ -4,6 +4,7 @@ members = [
     "crates/gpuemu-common",
     "crates/gpuemu-daemon",
     "crates/gpuemu",
+    "crates/gpuemu-client",
 ]
 
 [workspace.package]

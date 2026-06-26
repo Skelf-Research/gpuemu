@@ -719,6 +719,7 @@ class Client:
         seed: Optional[int] = None,
         op_schema: Optional[Dict[str, Any]] = None,
         dtypes: Optional[List[str]] = None,
+        value_distribution: str = "regular",
     ) -> List[Dict[str, Any]]:
         """Get a batch of test cases from the daemon.
 
@@ -731,12 +732,24 @@ class Client:
                 (e.g. matmul A[M,K]/B[K,N]) instead of one shape for all inputs.
                 Shape: {"name", "dims": [{"name","candidates"}],
                         "inputs": [{"name","dims"}], "output": {"name","dims"}}.
+            value_distribution: Element-value sampling strategy — one of
+                ``"regular"`` (uniform, the default), ``"boundary"`` (0/±1/tiny/
+                large edge magnitudes), or ``"adversarial"`` (NaN/±Inf/extreme
+                values mixed in). Boundary/adversarial surface the tail-mask and
+                special-value bugs a uniform sample misses.
 
         Returns:
             List of test case dicts (same format as get_test_case).
         """
         if seed is None:
             seed = int(time.time_ns()) & 0xFFFFFFFFFFFFFFFF
+
+        allowed = {"regular", "boundary", "adversarial"}
+        if value_distribution not in allowed:
+            raise ValueError(
+                f"value_distribution must be one of {sorted(allowed)}, "
+                f"got {value_distribution!r}"
+            )
 
         fuzz_config = {
             "seed": seed,
@@ -748,6 +761,7 @@ class Client:
             },
             "dtypes": dtypes or ["float32", "float16"],
             "layouts": ["Contiguous", "Strided"],
+            "value_distribution": value_distribution,
         }
         if op_schema is not None:
             fuzz_config["op_schema"] = op_schema
@@ -839,6 +853,7 @@ class Client:
         fail_fast: bool = False,
         op_schema: Optional[Dict[str, Any]] = None,
         dtypes: Optional[List[str]] = None,
+        value_distribution: str = "regular",
     ) -> FuzzResults:
         """Fuzz an op using client-side execution (THE RECOMMENDED DROP-IN PATH).
 
@@ -857,6 +872,8 @@ class Client:
             op_schema: Optional operator-aware shape schema (see get_test_batch).
                 Use for ops whose inputs have different but linked shapes
                 (matmul, attention) so fuzzing covers the real operator domain.
+            value_distribution: ``"regular"`` (default), ``"boundary"``, or
+                ``"adversarial"`` — see get_test_batch.
 
         Returns:
             FuzzResults with pass/fail counts and list of failures.
@@ -874,7 +891,12 @@ class Client:
             seed = int(time.time_ns()) & 0xFFFFFFFFFFFFFFFF
 
         cases = self.get_test_batch(
-            op_name, count=iterations, seed=seed, op_schema=op_schema, dtypes=dtypes
+            op_name,
+            count=iterations,
+            seed=seed,
+            op_schema=op_schema,
+            dtypes=dtypes,
+            value_distribution=value_distribution,
         )
         total = 0
         passed = 0

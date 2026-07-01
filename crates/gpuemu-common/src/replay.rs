@@ -194,7 +194,11 @@ mod tests {
         use base64::Engine;
         assert_eq!(
             payload.input_snapshot_b64.as_deref(),
-            Some(base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3, 4]).as_str())
+            Some(
+                base64::engine::general_purpose::STANDARD
+                    .encode([1u8, 2, 3, 4])
+                    .as_str()
+            )
         );
     }
 

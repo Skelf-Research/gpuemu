@@ -1,22 +1,25 @@
 //! NNG-based IPC server for the gpuemu daemon.
 
 use crate::executor::{Executor, ExecutorConfig};
-use crate::fuzzer::{Fuzzer, regenerate_test_case};
+use crate::fuzzer::{regenerate_test_case, Fuzzer};
 use crate::storage::Storage;
 use crate::validator::Validator;
 use anyhow::{Context, Result};
 use gpuemu_common::config::GpuemuConfig;
 use gpuemu_common::protocol::{
-    deserialize_request, serialize_response, ErrorCode, MinimizeStrategy, PROTOCOL_VERSION,
-    Request, Response, TestCaseData,
+    deserialize_request, serialize_response, ErrorCode, MinimizeStrategy, Request, Response,
+    TestCaseData, PROTOCOL_VERSION,
 };
-use gpuemu_common::types::{ArtifactDiffSummary, BaselineComparison, CiRunSummary, DType, LayoutType, TensorData, ValidationResult};
+use gpuemu_common::types::{
+    ArtifactDiffSummary, BaselineComparison, CiRunSummary, DType, LayoutType, TensorData,
+    ValidationResult,
+};
 use nng::options::Options;
 use nng::{Protocol, Socket};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -31,7 +34,10 @@ fn op_input_names(op: &gpuemu_common::config::OpConfig) -> Vec<&str> {
 }
 
 fn primary_input_name(op: &gpuemu_common::config::OpConfig) -> &str {
-    op.input_names.first().map(String::as_str).unwrap_or("input")
+    op.input_names
+        .first()
+        .map(String::as_str)
+        .unwrap_or("input")
 }
 
 /// Build a validator whose tolerances are the global validation tolerances
@@ -54,7 +60,8 @@ fn available_ops_message(config: &GpuemuConfig) -> String {
     } else {
         format!(
             "Available ops: {}",
-            config.ops
+            config
+                .ops
                 .iter()
                 .map(|op| op.name.as_str())
                 .collect::<Vec<_>>()
@@ -79,16 +86,18 @@ fn enforce_shape_preserved(
 
     if output.shape != input.shape {
         result.passed = false;
-        result.failures.push(gpuemu_common::types::ValidationFailure {
-            kind: gpuemu_common::types::FailureKind::InvariantViolation,
-            message: format!(
-                "shape_preserved invariant violated: input shape {:?}, output shape {:?}",
-                input.shape, output.shape
-            ),
-            index: None,
-            expected: None,
-            actual: None,
-        });
+        result
+            .failures
+            .push(gpuemu_common::types::ValidationFailure {
+                kind: gpuemu_common::types::FailureKind::InvariantViolation,
+                message: format!(
+                    "shape_preserved invariant violated: input shape {:?}, output shape {:?}",
+                    input.shape, output.shape
+                ),
+                index: None,
+                expected: None,
+                actual: None,
+            });
     }
 }
 
@@ -158,7 +167,7 @@ fn f32_to_f16_bits(val: f32) -> u16 {
     if exp <= 0 {
         sign
     } else if exp >= 31 {
-        (sign | 0x7C00) as u16
+        sign | 0x7C00
     } else {
         sign | ((exp as u16) << 10) | mant
     }
@@ -303,7 +312,9 @@ pub async fn run_server(socket_path: &Path, state: Arc<RwLock<ServerState>>) -> 
                 };
                 if let Ok(bytes) = serialize_response(&response) {
                     let socket = socket.clone();
-                    match tokio::task::spawn_blocking(move || socket.lock().unwrap().send(&bytes)).await {
+                    match tokio::task::spawn_blocking(move || socket.lock().unwrap().send(&bytes))
+                        .await
+                    {
                         Ok(Ok(())) => {}
                         Ok(Err((_, e))) => {
                             error!("Failed to send invalid-request response: {}", e);
@@ -488,17 +499,21 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
 
                     // Group by op_name for more robust matching (seeds may differ across runs)
                     for current in &current_results {
-                        let baseline_match = baseline_results.iter().find(|b| {
-                            b.op_name == current.op_name && b.seed == current.seed
-                        }).or_else(|| {
-                            baseline_results.iter().find(|b| b.op_name == current.op_name)
-                        });
+                        let baseline_match = baseline_results
+                            .iter()
+                            .find(|b| b.op_name == current.op_name && b.seed == current.seed)
+                            .or_else(|| {
+                                baseline_results
+                                    .iter()
+                                    .find(|b| b.op_name == current.op_name)
+                            });
 
                         let (regressed, relative_change) = match baseline_match {
                             Some(baseline) => {
                                 let baseline_max = baseline.max_diff.max(1e-15);
                                 let change = (current.max_diff - baseline.max_diff) / baseline_max;
-                                let is_regression = current.max_diff > baseline.max_diff * 1.1 + 1e-10
+                                let is_regression = current.max_diff
+                                    > baseline.max_diff * 1.1 + 1e-10
                                     || (!current.passed && baseline.passed);
                                 (is_regression, Some(change))
                             }
@@ -537,10 +552,16 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
         // =====================================================================
         // Phase 2: Fuzzing and Reproducibility
         // =====================================================================
-
-        Request::FuzzOp { op_name, fuzz_config, iterations, fail_fast } => {
-            info!("FuzzOp request: op={}, iterations={}, seed={}, fail_fast={}",
-                  op_name, iterations, fuzz_config.seed, fail_fast);
+        Request::FuzzOp {
+            op_name,
+            fuzz_config,
+            iterations,
+            fail_fast,
+        } => {
+            info!(
+                "FuzzOp request: op={}, iterations={}, seed={}, fail_fast={}",
+                op_name, iterations, fuzz_config.seed, fail_fast
+            );
 
             let state_read = state.read().await;
 
@@ -562,7 +583,10 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
             };
 
             // Store the fuzz config for later reproduction
-            if let Err(e) = state_read.storage.store_fuzz_config(fuzz_config.seed, &fuzz_config) {
+            if let Err(e) = state_read
+                .storage
+                .store_fuzz_config(fuzz_config.seed, &fuzz_config)
+            {
                 warn!("Failed to store fuzz config: {}", e);
             }
 
@@ -590,7 +614,12 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 let reference_path = std::path::Path::new(&op_config.reference);
                 let reference_result = state_read
                     .executor
-                    .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new(), true)
+                    .run_reference(
+                        reference_path,
+                        &test_case.inputs,
+                        &std::collections::HashMap::new(),
+                        true,
+                    )
                     .await;
 
                 let reference = match reference_result {
@@ -610,7 +639,8 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                             }],
                             duration_ms,
                         );
-                        result = result.with_repro_info(test_case.to_repro_info(Some(fuzz_config.clone())));
+                        result = result
+                            .with_repro_info(test_case.to_repro_info(Some(fuzz_config.clone())));
 
                         if let Err(e) = state_read.storage.store_failure(&result) {
                             warn!("Failed to store failure: {}", e);
@@ -635,7 +665,12 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                 let op_script_path = std::path::Path::new(op_script);
                                 let op_result = state_read
                                     .executor
-                                    .run_reference(op_script_path, &test_case.inputs, &std::collections::HashMap::new(), false)
+                                    .run_reference(
+                                        op_script_path,
+                                        &test_case.inputs,
+                                        &std::collections::HashMap::new(),
+                                        false,
+                                    )
                                     .await;
                                 match op_result {
                                     Ok(r) => r,
@@ -653,7 +688,9 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                             }],
                                             duration_ms,
                                         );
-                                        result = result.with_repro_info(test_case.to_repro_info(Some(fuzz_config.clone())));
+                                        result = result.with_repro_info(
+                                            test_case.to_repro_info(Some(fuzz_config.clone())),
+                                        );
                                         total += 1;
                                         failed += 1;
                                         failures.push(result);
@@ -665,8 +702,13 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                 }
                             }
                             None => {
-                                warn!("Op '{}' has ScriptBased mode but no op_script configured", op_name);
-                                test_case.inputs.get(primary_input_name(&op_config))
+                                warn!(
+                                    "Op '{}' has ScriptBased mode but no op_script configured",
+                                    op_name
+                                );
+                                test_case
+                                    .inputs
+                                    .get(primary_input_name(&op_config))
                                     .cloned()
                                     .unwrap_or_else(|| reference.clone())
                             }
@@ -699,7 +741,8 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                     passed += 1;
                 } else {
                     // Add reproduction info to failures
-                    result = result.with_repro_info(test_case.to_repro_info(Some(fuzz_config.clone())));
+                    result =
+                        result.with_repro_info(test_case.to_repro_info(Some(fuzz_config.clone())));
 
                     if let Err(e) = state_read.storage.store_failure(&result) {
                         warn!("Failed to store failure: {}", e);
@@ -714,7 +757,10 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 }
             }
 
-            info!("FuzzOp complete: total={}, passed={}, failed={}", total, passed, failed);
+            info!(
+                "FuzzOp complete: total={}, passed={}, failed={}",
+                total, passed, failed
+            );
 
             Response::FuzzResults {
                 seed: fuzz_config.seed,
@@ -758,7 +804,11 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 }
             };
 
-            let input_names = match state_read.config.ops.iter().find(|op| op.name == failure.op_name)
+            let input_names = match state_read
+                .config
+                .ops
+                .iter()
+                .find(|op| op.name == failure.op_name)
             {
                 Some(op_config) => op_input_names(op_config),
                 None => vec!["input"],
@@ -773,8 +823,15 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
             }
         }
 
-        Request::Minimize { seed, strategy, max_iters } => {
-            info!("Minimize request: seed={}, strategy={:?}, max_iters={}", seed, strategy, max_iters);
+        Request::Minimize {
+            seed,
+            strategy,
+            max_iters,
+        } => {
+            info!(
+                "Minimize request: seed={}, strategy={:?}, max_iters={}",
+                seed, strategy, max_iters
+            );
 
             let state_read = state.read().await;
 
@@ -804,7 +861,12 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 }
             };
 
-            let op_config = match state_read.config.ops.iter().find(|op| op.name == failure.op_name) {
+            let op_config = match state_read
+                .config
+                .ops
+                .iter()
+                .find(|op| op.name == failure.op_name)
+            {
                 Some(c) => c.clone(),
                 None => {
                     return Response::Error {
@@ -850,10 +912,12 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                 LayoutType::Contiguous => {
                                     TensorData::compute_contiguous_strides(&test_shape)
                                 }
-                                LayoutType::Strided => TensorData::compute_contiguous_strides(&test_shape)
-                                    .into_iter()
-                                    .map(|stride| stride * 2)
-                                    .collect(),
+                                LayoutType::Strided => {
+                                    TensorData::compute_contiguous_strides(&test_shape)
+                                        .into_iter()
+                                        .map(|stride| stride * 2)
+                                        .collect()
+                                }
                                 LayoutType::Transposed => {
                                     if test_shape.len() >= 2 {
                                         let mut transposed_shape = test_shape.clone();
@@ -871,7 +935,12 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                             let reference_path = Path::new(&op_config.reference);
                             let reference_result = state_read
                                 .executor
-                                .run_reference(reference_path, &test_case.inputs, &std::collections::HashMap::new(), true)
+                                .run_reference(
+                                    reference_path,
+                                    &test_case.inputs,
+                                    &std::collections::HashMap::new(),
+                                    true,
+                                )
                                 .await;
 
                             match reference_result {
@@ -882,13 +951,15 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                         .cloned()
                                         .unwrap_or_else(|| reference.clone());
                                     let invariants = Some(&op_config.invariants);
-                                    let result = op_validator(&state_read.config.validation, &op_config).validate(
-                                        &failure.op_name,
-                                        &output,
-                                        &reference,
-                                        test_seed,
-                                        invariants,
-                                    );
+                                    let result =
+                                        op_validator(&state_read.config.validation, &op_config)
+                                            .validate(
+                                                &failure.op_name,
+                                                &output,
+                                                &reference,
+                                                test_seed,
+                                                invariants,
+                                            );
                                     let mut result = result;
                                     enforce_shape_preserved(
                                         &mut result,
@@ -937,34 +1008,52 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                             for (name, tensor) in &original_case.inputs {
                                 let mut scaled_data = tensor.data.clone();
                                 scale_tensor_values(&mut scaled_data, tensor.dtype, scale);
-                                scaled_inputs.insert(name.clone(), TensorData {
-                                    shape: tensor.shape.clone(),
-                                    strides: tensor.strides.clone(),
-                                    dtype: tensor.dtype,
-                                    data: scaled_data,
-                                });
+                                scaled_inputs.insert(
+                                    name.clone(),
+                                    TensorData {
+                                        shape: tensor.shape.clone(),
+                                        strides: tensor.strides.clone(),
+                                        dtype: tensor.dtype,
+                                        data: scaled_data,
+                                    },
+                                );
                             }
 
                             let reference_path = Path::new(&op_config.reference);
                             let reference_result = state_read
                                 .executor
-                                .run_reference(reference_path, &scaled_inputs, &std::collections::HashMap::new(), true)
+                                .run_reference(
+                                    reference_path,
+                                    &scaled_inputs,
+                                    &std::collections::HashMap::new(),
+                                    true,
+                                )
                                 .await;
 
                             match reference_result {
                                 Ok(reference) => {
                                     let primary = primary_input_name(&op_config);
-                                    let output = scaled_inputs.get(primary).cloned().unwrap_or_else(|| reference.clone());
+                                    let output = scaled_inputs
+                                        .get(primary)
+                                        .cloned()
+                                        .unwrap_or_else(|| reference.clone());
                                     let invariants = Some(&op_config.invariants);
-                                    let result = op_validator(&state_read.config.validation, &op_config).validate(
-                                        &failure.op_name,
-                                        &output,
-                                        &reference,
-                                        seed,
-                                        invariants,
-                                    );
+                                    let result =
+                                        op_validator(&state_read.config.validation, &op_config)
+                                            .validate(
+                                                &failure.op_name,
+                                                &output,
+                                                &reference,
+                                                seed,
+                                                invariants,
+                                            );
                                     let mut result = result;
-                                    enforce_shape_preserved(&mut result, &output, &scaled_inputs, &op_config);
+                                    enforce_shape_preserved(
+                                        &mut result,
+                                        &output,
+                                        &scaled_inputs,
+                                        &op_config,
+                                    );
                                     if !result.passed {
                                         best_scale = scale;
                                         hi = mid;
@@ -1012,8 +1101,10 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
         // =====================================================================
         // Phase 3: Artifact Inspection
         // =====================================================================
-
-        Request::LintKernel { kernel_name, ptx_content } => {
+        Request::LintKernel {
+            kernel_name,
+            ptx_content,
+        } => {
             info!("LintKernel request: kernel={:?}", kernel_name);
 
             let state_read = state.read().await;
@@ -1032,7 +1123,8 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                                 reference: String::new(),
                                 tolerances: std::collections::HashMap::new(),
                                 invariants: gpuemu_common::config::InvariantConfig::default(),
-                                artifact_checks: gpuemu_common::config::ArtifactCheckConfig::default(),
+                                artifact_checks:
+                                    gpuemu_common::config::ArtifactCheckConfig::default(),
                             }]
                         }
                     }
@@ -1040,7 +1132,8 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 None => {
                     if state_read.config.kernels.is_empty() {
                         // No kernels configured, use default config with kernel name from PTX
-                        let detected_name = parser.extract_kernel_name(&ptx_content)
+                        let detected_name = parser
+                            .extract_kernel_name(&ptx_content)
                             .unwrap_or_else(|| "unknown".to_string());
                         vec![gpuemu_common::config::KernelConfig {
                             name: detected_name,
@@ -1068,7 +1161,10 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                         }
 
                         // Lint against config
-                        let result = crate::artifact::ArtifactLinter::lint(&metrics, &kernel.artifact_checks);
+                        let result = crate::artifact::ArtifactLinter::lint(
+                            &metrics,
+                            &kernel.artifact_checks,
+                        );
                         results.push(result);
                     }
                     Err(e) => {
@@ -1083,7 +1179,10 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
             Response::LintResults { results }
         }
 
-        Request::StoreArtifact { kernel_name: _, metrics } => {
+        Request::StoreArtifact {
+            kernel_name: _,
+            metrics,
+        } => {
             info!("StoreArtifact request: kernel={}", metrics.kernel_name);
 
             let state_read = state.read().await;
@@ -1118,7 +1217,11 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
             let state_read = state.read().await;
 
             // Check baseline exists
-            if !state_read.storage.has_artifact_baseline(&tag).unwrap_or(false) {
+            if !state_read
+                .storage
+                .has_artifact_baseline(&tag)
+                .unwrap_or(false)
+            {
                 return Response::Error {
                     code: ErrorCode::BaselineNotFound,
                     message: format!("Baseline '{}' not found", tag),
@@ -1199,10 +1302,15 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
         // =====================================================================
         // Phase 4: CI Integration
         // =====================================================================
-
-        Request::RunCi { quick, baseline, parallel_jobs } => {
-            info!("RunCi request: quick={}, baseline={:?}, parallel_jobs={}",
-                  quick, baseline, parallel_jobs);
+        Request::RunCi {
+            quick,
+            baseline,
+            parallel_jobs,
+        } => {
+            info!(
+                "RunCi request: quick={}, baseline={:?}, parallel_jobs={}",
+                quick, baseline, parallel_jobs
+            );
 
             let start_time = Instant::now();
 
@@ -1377,7 +1485,10 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                         if let Ok(ptx_content) = std::fs::read_to_string(ptx_path) {
                             let parser = crate::artifact::PtxParser::new();
                             if let Ok(metrics) = parser.parse(&kernel.name, &ptx_content) {
-                                let result = crate::artifact::ArtifactLinter::lint(&metrics, &kernel.artifact_checks);
+                                let result = crate::artifact::ArtifactLinter::lint(
+                                    &metrics,
+                                    &kernel.artifact_checks,
+                                );
                                 lint_results.push(result);
                             }
                         }
@@ -1387,15 +1498,24 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
 
             // Run artifact diff if baseline specified
             let artifact_diffs = if let Some(ref tag) = baseline {
-                if state_read.storage.has_artifact_baseline(tag).unwrap_or(false) {
-                    let baseline_artifacts = state_read.storage.get_artifact_baseline(tag).unwrap_or_default();
+                if state_read
+                    .storage
+                    .has_artifact_baseline(tag)
+                    .unwrap_or(false)
+                {
+                    let baseline_artifacts = state_read
+                        .storage
+                        .get_artifact_baseline(tag)
+                        .unwrap_or_default();
                     let current_artifacts = state_read.storage.list_artifacts().unwrap_or_default();
 
                     let mut diffs = Vec::new();
                     let mut has_regressions = false;
 
                     for curr in &current_artifacts {
-                        let base = baseline_artifacts.iter().find(|b| b.kernel_name == curr.kernel_name);
+                        let base = baseline_artifacts
+                            .iter()
+                            .find(|b| b.kernel_name == curr.kernel_name);
                         let diff = crate::artifact::ArtifactDiffer::diff(base, curr);
                         if diff.is_regression {
                             has_regressions = true;
@@ -1438,8 +1558,13 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
                 artifact_diffs,
             };
 
-            info!("CI run complete: {} tests, {} passed, {} failed, {:.2}s",
-                  total, passed, failed, summary.duration_ms as f64 / 1000.0);
+            info!(
+                "CI run complete: {} tests, {} passed, {} failed, {:.2}s",
+                total,
+                passed,
+                failed,
+                summary.duration_ms as f64 / 1000.0
+            );
 
             drop(state_read);
             let mut state_write = state.write().await;
@@ -1464,8 +1589,10 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
         // =====================================================================
         // Execution Modes: Daemon-Orchestrated
         // =====================================================================
-
-        Request::GetTestCase { op_name, fuzz_config } => {
+        Request::GetTestCase {
+            op_name,
+            fuzz_config,
+        } => {
             info!("GetTestCase request: op={}", op_name);
 
             let state_read = state.read().await;
@@ -1498,7 +1625,11 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
             }
         }
 
-        Request::GetTestBatch { op_name, fuzz_config, count } => {
+        Request::GetTestBatch {
+            op_name,
+            fuzz_config,
+            count,
+        } => {
             info!("GetTestBatch request: op={}, count={}", op_name, count);
 
             let state_read = state.read().await;
@@ -1536,7 +1667,13 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
             Response::TestBatch { cases }
         }
 
-        Request::SubmitOutput { op_name, inputs, output, seed, kwargs } => {
+        Request::SubmitOutput {
+            op_name,
+            inputs,
+            output,
+            seed,
+            kwargs,
+        } => {
             info!("SubmitOutput request: op={}, seed={}", op_name, seed);
 
             let state_read = state.read().await;
@@ -1574,13 +1711,8 @@ async fn handle_request(request: Request, state: Arc<RwLock<ServerState>>) -> Re
 
             // Validate submitted output against reference (op tolerances overlaid)
             let invariants = Some(&op_config.invariants);
-            let mut result = op_validator(&state_read.config.validation, op_config).validate(
-                &op_name,
-                &output,
-                &reference,
-                seed,
-                invariants,
-            );
+            let mut result = op_validator(&state_read.config.validation, op_config)
+                .validate(&op_name, &output, &reference, seed, invariants);
             enforce_shape_preserved(&mut result, &output, &inputs, op_config);
 
             // Store result
@@ -1730,8 +1862,11 @@ json.dump(encode_tensor(result), sys.stdout)
         }
         assert!(pong_ok, "server never responded to ping");
 
-        let values = vec![1.0f32, 2.0, 3.0, 4.0];
-        let bytes = values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>();
+        let values = [1.0f32, 2.0, 3.0, 4.0];
+        let bytes = values
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect::<Vec<_>>();
         let tensor = TensorData::new(vec![2, 2], DType::Float32, bytes);
 
         let mut inputs = HashMap::new();
@@ -1750,7 +1885,11 @@ json.dump(encode_tensor(result), sys.stdout)
 
         match response {
             Response::ValidationResult { result } => {
-                assert!(result.passed, "validation should pass: {:?}", result.failures);
+                assert!(
+                    result.passed,
+                    "validation should pass: {:?}",
+                    result.failures
+                );
             }
             other => panic!("unexpected response: {:?}", other),
         }

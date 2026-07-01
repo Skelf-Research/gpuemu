@@ -31,16 +31,12 @@ pub(crate) mod serde_b64 {
 
         pub fn serialize<S: Serializer>(bytes: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
             match bytes {
-                Some(b) => {
-                    s.serialize_some(&base64::engine::general_purpose::STANDARD.encode(b))
-                }
+                Some(b) => s.serialize_some(&base64::engine::general_purpose::STANDARD.encode(b)),
                 None => s.serialize_none(),
             }
         }
 
-        pub fn deserialize<'de, D: Deserializer<'de>>(
-            d: D,
-        ) -> Result<Option<Vec<u8>>, D::Error> {
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
             let opt = Option::<String>::deserialize(d)?;
             match opt {
                 Some(s) => base64::engine::general_purpose::STANDARD
@@ -583,9 +579,11 @@ impl OpSchema {
 )]
 #[archive(check_bytes)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ValueDistribution {
     /// Uniform in [-10, 10] for floats; small-range ints. The field-standard
     /// default and the historical behaviour (byte-identical for old seeds).
+    #[default]
     Regular,
     /// Emphasise edge magnitudes: exact `0`, `±1`, near-denormal tiny values,
     /// and large finite values — the inputs that expose tail-mask / partial-tile
@@ -594,12 +592,6 @@ pub enum ValueDistribution {
     /// Inject pathological values: `NaN`, `±Inf`, very large/small magnitudes,
     /// and sign-cancellation pairs, mixed with regular draws.
     Adversarial,
-}
-
-impl Default for ValueDistribution {
-    fn default() -> Self {
-        ValueDistribution::Regular
-    }
 }
 
 /// Configuration for fuzz testing.
@@ -1053,8 +1045,14 @@ mod tests {
         let schema = cfg.op_schema.expect("schema present");
         assert_eq!(schema.name, "matmul");
         assert_eq!(schema.dims.len(), 3);
-        assert_eq!(schema.inputs[1].dims, vec!["K".to_string(), "N".to_string()]);
-        assert_eq!(schema.output.unwrap().dims, vec!["M".to_string(), "N".to_string()]);
+        assert_eq!(
+            schema.inputs[1].dims,
+            vec!["K".to_string(), "N".to_string()]
+        );
+        assert_eq!(
+            schema.output.unwrap().dims,
+            vec!["M".to_string(), "N".to_string()]
+        );
     }
 
     #[test]

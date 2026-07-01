@@ -17,7 +17,7 @@ pub enum ConfigError {
 }
 
 /// Root configuration structure.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GpuemuConfig {
     /// Project metadata.
     #[serde(default)]
@@ -92,19 +92,6 @@ bfloat16 = 1e-3
 # float32 = 1e-5
 "#
         .to_string()
-    }
-}
-
-impl Default for GpuemuConfig {
-    fn default() -> Self {
-        Self {
-            project: ProjectConfig::default(),
-            validation: ValidationConfig::default(),
-            ops: Vec::new(),
-            kernels: Vec::new(),
-            policies: PolicyConfig::default(),
-            ci: CiConfig::default(),
-        }
     }
 }
 

@@ -240,9 +240,7 @@ impl Executor {
             _ => DType::Float32,
         };
 
-        let data_b64 = output["data"]
-            .as_str()
-            .context("Missing data in output")?;
+        let data_b64 = output["data"].as_str().context("Missing data in output")?;
         let data = base64::engine::general_purpose::STANDARD
             .decode(data_b64)
             .context("Failed to decode base64 data")?;

@@ -159,9 +159,10 @@ impl Validator {
             && is_float_dtype(output.dtype)
             && is_float_dtype(reference.dtype)
         {
-            if let (Some(o64), Some(r64)) =
-                (decode_floats_to_f64(output), decode_floats_to_f64(reference))
-            {
+            if let (Some(o64), Some(r64)) = (
+                decode_floats_to_f64(output),
+                decode_floats_to_f64(reference),
+            ) {
                 return compare_f64_slices(&o64, &r64, tolerance);
             }
         }
@@ -642,7 +643,6 @@ pub(crate) fn bytemuck_cast_slice_mut<T: bytemuck::Pod>(bytes: &mut [u8]) -> &mu
 }
 
 // Add bytemuck dependency
-use bytemuck;
 
 /// Whether a dtype is a floating-point type.
 pub(crate) fn is_float_dtype(d: DType) -> bool {
@@ -757,7 +757,7 @@ pub(crate) fn bf16_to_f32(bits: u16) -> f32 {
         } else {
             let sign32 = sign << 31;
             let mant32 = mant << 16;
-            let exp32 = 127 - 127 + 1;
+            let exp32 = 1;
             f32::from_bits(sign32 | (exp32 << 23) | mant32) - f32::from_bits(1u32 << 23)
         }
     } else if exp == 255 {
@@ -895,7 +895,11 @@ impl StatsAccum {
             count,
             num_exceeding: self.num_exceeding,
             max_abs: self.max_abs,
-            mean_abs: if count > 0 { self.sum_abs / count as f64 } else { 0.0 },
+            mean_abs: if count > 0 {
+                self.sum_abs / count as f64
+            } else {
+                0.0
+            },
             p50_abs: pct(0.50),
             p90_abs: pct(0.90),
             p99_abs: pct(0.99),
@@ -906,7 +910,11 @@ impl StatsAccum {
                 0.0
             },
             max_ulp: self.max_ulp,
-            mean_ulp: if count > 0 { self.sum_ulp / count as f64 } else { 0.0 },
+            mean_ulp: if count > 0 {
+                self.sum_ulp / count as f64
+            } else {
+                0.0
+            },
         }
     }
 }
@@ -943,7 +951,10 @@ impl Validator {
             if !(is_float_dtype(output.dtype) && is_float_dtype(reference.dtype)) {
                 return None;
             }
-            let (o64, r64) = (decode_floats_to_f64(output)?, decode_floats_to_f64(reference)?);
+            let (o64, r64) = (
+                decode_floats_to_f64(output)?,
+                decode_floats_to_f64(reference)?,
+            );
             let mut acc = StatsAccum::with_capacity(o64.len(), tol);
             for (a, b) in o64.iter().zip(r64.iter()) {
                 acc.push(*a, *b, f64_ulp(*a, *b));
@@ -1115,7 +1126,10 @@ mod tests {
         let reference = make_f32_tensor(vec![2], vec![1.0, 2.0]);
 
         let plain = validator.validate("elementwise", &output, &reference, 1, None);
-        assert!(!plain.passed, "plain op should reject a 2e-5 diff at 1e-5 tol");
+        assert!(
+            !plain.passed,
+            "plain op should reject a 2e-5 diff at 1e-5 tol"
+        );
 
         let fused = validator.validate("attention", &output, &reference, 1, None);
         assert!(

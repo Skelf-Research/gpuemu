@@ -7,7 +7,7 @@ use anyhow::Result;
 pub use repl::start_repl;
 
 /// Configuration for debug mode.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DebugConfig {
     /// Specific seed to investigate
     pub seed: Option<u64>,
@@ -16,16 +16,6 @@ pub struct DebugConfig {
     /// Use REPL mode (vs TUI)
     #[allow(dead_code)]
     pub repl_mode: bool,
-}
-
-impl Default for DebugConfig {
-    fn default() -> Self {
-        Self {
-            seed: None,
-            op: None,
-            repl_mode: false,
-        }
-    }
 }
 
 /// Start the interactive debug session.

@@ -131,9 +131,7 @@ impl JunitReport {
                 ));
 
                 if diff.is_regression {
-                    xml.push_str(&format!(
-                        "      <failure type=\"Regression\" message=\"Artifact regression detected\">\n"
-                    ));
+                    xml.push_str("      <failure type=\"Regression\" message=\"Artifact regression detected\">\n");
                     xml.push_str(&format!("Kernel: {}\n", diff.kernel_name));
                     xml.push_str(&format!("Register delta: {:+}\n", diff.register_delta));
                     xml.push_str(&format!("Spill delta: {:+}\n", diff.spill_delta));
@@ -307,7 +305,7 @@ impl TextReport {
             "Duration:     {:.2}s\n",
             summary.duration_ms as f64 / 1000.0
         ));
-        text.push_str("\n");
+        text.push('\n');
 
         // Validation results
         if !summary.validation_results.is_empty() {
@@ -332,7 +330,7 @@ impl TextReport {
                     }
                 }
             }
-            text.push_str("\n");
+            text.push('\n');
         }
 
         // Lint results
@@ -365,7 +363,7 @@ impl TextReport {
                     }
                 }
             }
-            text.push_str("\n");
+            text.push('\n');
         }
 
         // Artifact diffs
@@ -422,7 +420,7 @@ impl TextReport {
             } else {
                 text.push_str("\n✓ No regressions detected.\n");
             }
-            text.push_str("\n");
+            text.push('\n');
         }
 
         // Footer
@@ -516,10 +514,7 @@ impl SarifReport {
                 rule_ids.insert(rule_id.clone());
                 let text = format!(
                     "{} (kernel: {}, regs: {}, spills: {}).",
-                    v.message,
-                    r.kernel_name,
-                    r.metrics.register_count,
-                    r.metrics.spill_count,
+                    v.message, r.kernel_name, r.metrics.register_count, r.metrics.spill_count,
                 );
                 results.push(serde_json::json!({
                     "ruleId": rule_id,
@@ -625,10 +620,7 @@ impl PrCommentReport {
         } else {
             "✅"
         };
-        md.push_str(&format!(
-            "## {} gpuemu correctness report\n\n",
-            icon
-        ));
+        md.push_str(&format!("## {} gpuemu correctness report\n\n", icon));
         md.push_str(&format!(
             "**{} passed**, **{} failed**, **{} skipped** ({:.2}s total).\n\n",
             summary.passed,
@@ -662,11 +654,8 @@ impl PrCommentReport {
         }
 
         // Lint violations.
-        let lint_fails: Vec<&LintResult> = summary
-            .lint_results
-            .iter()
-            .filter(|r| !r.passed)
-            .collect();
+        let lint_fails: Vec<&LintResult> =
+            summary.lint_results.iter().filter(|r| !r.passed).collect();
         if !lint_fails.is_empty() {
             md.push_str("### Static-PTX lint violations\n\n");
             md.push_str("| kernel | violation | regs | spills | local | instrs |\n");
@@ -900,7 +889,9 @@ mod tests {
         );
         // Rule is registered on the driver.
         let rules = run["tool"]["driver"]["rules"].as_array().unwrap();
-        assert!(rules.iter().any(|r| r["id"] == "validation/ToleranceExceeded"));
+        assert!(rules
+            .iter()
+            .any(|r| r["id"] == "validation/ToleranceExceeded"));
     }
 
     #[test]

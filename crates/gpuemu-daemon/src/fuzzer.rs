@@ -298,11 +298,7 @@ impl Fuzzer {
     ///
     /// Each dim derives an independent sub-RNG from `rng`, so sampling is
     /// deterministic and independent of dim ordering.
-    fn sample_schema_dims(
-        &self,
-        rng: &SeededRng,
-        schema: &OpSchema,
-    ) -> HashMap<String, usize> {
+    fn sample_schema_dims(&self, rng: &SeededRng, schema: &OpSchema) -> HashMap<String, usize> {
         let mut dims = HashMap::new();
         for d in &schema.dims {
             let value = if d.candidates.is_empty() {
@@ -518,6 +514,9 @@ fn f32_to_half_bits(val: f32) -> u16 {
 ///
 /// `dist` selects the float value distribution; integer/bool generation is
 /// distribution-independent (shape fuzzing already covers their boundaries).
+// Index-based writes into typed byte windows (`data[i*W..i*W+W]`) are the
+// clearest form here and keep the rng-consumption order obvious.
+#[allow(clippy::needless_range_loop)]
 fn generate_data_from_seed(
     rng: &mut SeededRng,
     numel: usize,
@@ -701,14 +700,21 @@ mod tests {
             let val = ((ref_rng.gen_f64() * 2.0 - 1.0) * 10.0) as f32;
             expected[i * 4..i * 4 + 4].copy_from_slice(&val.to_le_bytes());
         }
-        assert_eq!(got, expected, "Regular mode diverged from historical formula");
+        assert_eq!(
+            got, expected,
+            "Regular mode diverged from historical formula"
+        );
     }
 
     #[test]
     fn test_adversarial_injects_special_values() {
         let mut rng = SeededRng::new(13);
-        let data =
-            generate_data_from_seed(&mut rng, 512, DType::Float32, ValueDistribution::Adversarial);
+        let data = generate_data_from_seed(
+            &mut rng,
+            512,
+            DType::Float32,
+            ValueDistribution::Adversarial,
+        );
         let vals = decode_f32(&data);
         assert!(vals.iter().any(|v| v.is_nan()), "expected at least one NaN");
         assert!(
@@ -728,8 +734,8 @@ mod tests {
             generate_data_from_seed(&mut rng, 512, DType::Float32, ValueDistribution::Boundary);
         let vals = decode_f32(&data);
         assert!(vals.iter().all(|v| v.is_finite()), "boundary stays finite");
-        assert!(vals.iter().any(|v| *v == 0.0), "expected exact zeros");
-        assert!(vals.iter().any(|v| *v == 1.0), "expected exact ones");
+        assert!(vals.contains(&0.0), "expected exact zeros");
+        assert!(vals.contains(&1.0), "expected exact ones");
     }
 
     #[test]
@@ -737,7 +743,11 @@ mod tests {
         // The improved f16 conversion must keep NaN as NaN (0x7E00 pattern),
         // not collapse it to infinity.
         assert_eq!(f32_to_half_bits(f32::NAN) & 0x7C00, 0x7C00);
-        assert_ne!(f32_to_half_bits(f32::NAN) & 0x03FF, 0, "NaN must keep mantissa");
+        assert_ne!(
+            f32_to_half_bits(f32::NAN) & 0x03FF,
+            0,
+            "NaN must keep mantissa"
+        );
         assert_eq!(f32_to_half_bits(f32::INFINITY), 0x7C00);
         assert_eq!(f32_to_half_bits(f32::NEG_INFINITY), 0xFC00);
     }
@@ -759,8 +769,14 @@ mod tests {
             // Representative (output) shape is M x N.
             assert_eq!(tc.shape, vec![a[0], b[1]]);
             // Data length matches each input's own element count.
-            assert_eq!(tc.inputs["a"].data.len(), a.iter().product::<usize>() * tc.dtype.size_bytes());
-            assert_eq!(tc.inputs["b"].data.len(), b.iter().product::<usize>() * tc.dtype.size_bytes());
+            assert_eq!(
+                tc.inputs["a"].data.len(),
+                a.iter().product::<usize>() * tc.dtype.size_bytes()
+            );
+            assert_eq!(
+                tc.inputs["b"].data.len(),
+                b.iter().product::<usize>() * tc.dtype.size_bytes()
+            );
         }
     }
 

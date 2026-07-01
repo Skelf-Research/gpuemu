@@ -384,7 +384,14 @@ fn main() -> Result<()> {
             include_lint,
             include_artifacts,
             signed,
-        } => handle_report(format, output, since_hours, include_lint, include_artifacts, signed),
+        } => handle_report(
+            format,
+            output,
+            since_hours,
+            include_lint,
+            include_artifacts,
+            signed,
+        ),
         Commands::Coverage { format, output } => handle_coverage(format, output),
         Commands::Debug { seed, repl, op } => handle_debug(seed, repl, op),
     }
@@ -959,10 +966,7 @@ fn handle_failures(limit: usize) -> Result<()> {
             if failures.is_empty() {
                 println!("No failures stored.");
             } else {
-                println!(
-                    "{:<20} {:<15} {:<10} {}",
-                    "SEED", "OP", "PASSED", "FIRST FAILURE"
-                );
+                println!("{:<20} {:<15} {:<10} FIRST FAILURE", "SEED", "OP", "PASSED");
                 println!("{}", "-".repeat(70));
 
                 for f in &failures {
@@ -1154,8 +1158,8 @@ fn handle_diff(baseline: String, fail_on_regression: bool, format: String) -> Re
                 }
 
                 println!(
-                    "{:<30} {:>10} {:>10} {:>12} {:>10} {}",
-                    "KERNEL", "REGS", "SPILLS", "LOCAL_MEM", "INSTRS", "STATUS"
+                    "{:<30} {:>10} {:>10} {:>12} {:>10} STATUS",
+                    "KERNEL", "REGS", "SPILLS", "LOCAL_MEM", "INSTRS"
                 );
                 println!("{}", "-".repeat(85));
 
@@ -1486,7 +1490,10 @@ fn handle_report(
             let pub_path = dirs::home_dir()
                 .unwrap_or_default()
                 .join(".gpuemu/sign-ed25519.pub");
-            println!("Share the public key for verification: {}", pub_path.display());
+            println!(
+                "Share the public key for verification: {}",
+                pub_path.display()
+            );
         }
     } else {
         println!("{}", report_content);
@@ -1547,14 +1554,11 @@ fn handle_coverage(format: String, output: Option<PathBuf>) -> Result<()> {
     // Fetch validated ops from the daemon's result store.
     let validated: std::collections::BTreeSet<String> =
         match send_request(Request::ListResults { limit: 10_000 }) {
-            Ok(Response::Results { results }) => {
-                results.into_iter().map(|r| r.op_name).collect()
-            }
+            Ok(Response::Results { results }) => results.into_iter().map(|r| r.op_name).collect(),
             _ => Default::default(),
         };
 
-    let configured: std::collections::BTreeSet<String> =
-        configured_ops.into_iter().collect();
+    let configured: std::collections::BTreeSet<String> = configured_ops.into_iter().collect();
     let covered: Vec<&String> = configured.intersection(&validated).collect();
     let uncovered: Vec<&String> = configured.difference(&validated).collect();
     let percent = if configured.is_empty() {
@@ -1616,8 +1620,7 @@ fn handle_coverage(format: String, output: Option<PathBuf>) -> Result<()> {
     };
 
     if let Some(path) = output {
-        std::fs::write(&path, &body)
-            .with_context(|| format!("writing {:?}", path))?;
+        std::fs::write(&path, &body).with_context(|| format!("writing {:?}", path))?;
         println!("Coverage report written to {:?}", path);
     } else {
         println!("{}", body);
@@ -1651,7 +1654,7 @@ fn send_request(request: Request) -> Result<Response> {
     send_request_to(&socket_path, request)
 }
 
-fn send_request_to(socket_path: &std::path::PathBuf, request: Request) -> Result<Response> {
+fn send_request_to(socket_path: &std::path::Path, request: Request) -> Result<Response> {
     let socket_url = format!("ipc://{}", socket_path.display());
 
     let socket = Socket::new(Protocol::Req0).context("Failed to create socket")?;

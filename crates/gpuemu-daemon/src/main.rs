@@ -37,7 +37,10 @@ fn validate_startup(config: &GpuemuConfig) {
     for op in &config.ops {
         let ref_path = std::path::Path::new(&op.reference);
         if !ref_path.exists() {
-            warn!("Op '{}': reference script '{}' not found", op.name, op.reference);
+            warn!(
+                "Op '{}': reference script '{}' not found",
+                op.name, op.reference
+            );
             issues += 1;
         } else {
             info!("Op '{}': reference script '{}' OK", op.name, op.reference);
@@ -49,14 +52,20 @@ fn validate_startup(config: &GpuemuConfig) {
         if let Some(ref source) = kernel.source {
             let source_path = std::path::Path::new(source);
             if !source_path.exists() {
-                warn!("Kernel '{}': source file '{}' not found", kernel.name, source);
+                warn!(
+                    "Kernel '{}': source file '{}' not found",
+                    kernel.name, source
+                );
                 issues += 1;
             }
         }
     }
 
     if issues > 0 {
-        warn!("Startup validation found {} issue(s). Some features may not work.", issues);
+        warn!(
+            "Startup validation found {} issue(s). Some features may not work.",
+            issues
+        );
     } else {
         info!("Startup validation passed");
     }

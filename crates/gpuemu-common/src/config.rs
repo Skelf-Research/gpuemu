@@ -17,7 +17,7 @@ pub enum ConfigError {
 }
 
 /// Root configuration structure.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GpuemuConfig {
     /// Project metadata.
     #[serde(default)]
@@ -95,19 +95,6 @@ bfloat16 = 1e-3
     }
 }
 
-impl Default for GpuemuConfig {
-    fn default() -> Self {
-        Self {
-            project: ProjectConfig::default(),
-            validation: ValidationConfig::default(),
-            ops: Vec::new(),
-            kernels: Vec::new(),
-            policies: PolicyConfig::default(),
-            ci: CiConfig::default(),
-        }
-    }
-}
-
 /// Project metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
@@ -154,6 +141,12 @@ pub struct ValidationConfig {
     /// Tolerance settings per dtype.
     #[serde(default)]
     pub tolerances: HashMap<String, f64>,
+    /// Promote float inputs to fp64 before running the reference oracle, so the
+    /// reference is a high-precision ground truth. Defaults to `true`. Disable
+    /// (`oracle_fp64 = false`) to compute the reference in the kernel's input
+    /// dtype (the historical behaviour).
+    #[serde(default = "default_true")]
+    pub oracle_fp64: bool,
 }
 
 fn default_dtypes() -> Vec<String> {
@@ -177,6 +170,7 @@ impl Default for ValidationConfig {
             check_inf: true,
             seed: None,
             tolerances,
+            oracle_fp64: true,
         }
     }
 }

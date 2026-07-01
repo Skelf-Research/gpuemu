@@ -24,9 +24,9 @@
 
 use anyhow::{Context, Result};
 use base64::Engine;
-use ed25519_dalek::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use ed25519_dalek::pkcs8::spki::EncodePublicKey;
 use ed25519_dalek::pkcs8::DecodePublicKey;
+use ed25519_dalek::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use gpuemu_common::types::{CiRunSummary, ValidationResult};
 use sha2::{Digest, Sha256};
@@ -43,12 +43,8 @@ fn keypair_paths() -> Result<(PathBuf, PathBuf)> {
     let base = dirs::home_dir()
         .context("could not determine home directory for ~/.gpuemu/")?
         .join(".gpuemu");
-    std::fs::create_dir_all(&base)
-        .with_context(|| format!("creating {}", base.display()))?;
-    Ok((
-        base.join("sign-ed25519.sec"),
-        base.join("sign-ed25519.pub"),
-    ))
+    std::fs::create_dir_all(&base).with_context(|| format!("creating {}", base.display()))?;
+    Ok((base.join("sign-ed25519.sec"), base.join("sign-ed25519.pub")))
 }
 
 /// Load the ed25519 keypair from ~/.gpuemu/, generating + persisting it if
@@ -59,9 +55,8 @@ pub fn load_or_generate_keypair() -> Result<SigningKey> {
     if sec_path.exists() {
         let pem = std::fs::read_to_string(&sec_path)
             .with_context(|| format!("reading {}", sec_path.display()))?;
-        return SigningKey::from_pkcs8_pem(&pem).map_err(|e| {
-            anyhow::anyhow!("failed to decode {}: {}", sec_path.display(), e)
-        });
+        return SigningKey::from_pkcs8_pem(&pem)
+            .map_err(|e| anyhow::anyhow!("failed to decode {}: {}", sec_path.display(), e));
     }
 
     // Generate fresh keypair. ed25519-dalek's `rand_core` feature lets us
@@ -270,7 +265,9 @@ where <code>report.sha256</code> is the raw 32-byte digest and <code>report.sig<
 /// digest hex if the signature is valid, otherwise an error.
 #[allow(dead_code)]
 pub fn verify_html(signed: &str, pubkey_pem_path: &Path) -> Result<String> {
-    let body_end = signed.find(SIGNATURE_MARKER).context("no signature marker")?;
+    let body_end = signed
+        .find(SIGNATURE_MARKER)
+        .context("no signature marker")?;
     let body = &signed[..body_end + SIGNATURE_MARKER.len()];
     let body_with_newline = format!("{}\n", body);
     let digest = Sha256::digest(body_with_newline.as_bytes());
@@ -293,7 +290,10 @@ pub fn verify_html(signed: &str, pubkey_pem_path: &Path) -> Result<String> {
         .decode(sig_b64)
         .context("base64 decode failed")?;
     if sig_bytes.len() != 64 {
-        anyhow::bail!("expected 64-byte ed25519 signature, got {}", sig_bytes.len());
+        anyhow::bail!(
+            "expected 64-byte ed25519 signature, got {}",
+            sig_bytes.len()
+        );
     }
     let mut sig_arr = [0u8; 64];
     sig_arr.copy_from_slice(&sig_bytes);

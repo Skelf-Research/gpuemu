@@ -197,7 +197,7 @@ fn list_failures(limit: usize) -> Result<()> {
             if failures.is_empty() {
                 println!("No failures stored.");
             } else {
-                println!("{:<20} {:<15} {}", "SEED", "OP", "FIRST FAILURE");
+                println!("{:<20} {:<15} FIRST FAILURE", "SEED", "OP");
                 println!("{}", "-".repeat(60));
 
                 for f in &failures {

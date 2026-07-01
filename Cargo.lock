@@ -563,6 +563,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpuemu-client"
+version = "0.1.0"
+dependencies = [
+ "gpuemu-common",
+ "nng",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "gpuemu-common"
 version = "0.1.0"
 dependencies = [

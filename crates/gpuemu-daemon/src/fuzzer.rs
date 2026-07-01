@@ -3,6 +3,7 @@
 use gpuemu_common::rng::SeededRng;
 use gpuemu_common::types::{
     DType, FuzzConfig, LayoutType, OpSchema, ReproductionInfo, TensorData, TensorSchema,
+    ValueDistribution,
 };
 use std::collections::HashMap;
 use tracing::warn;
@@ -297,11 +298,7 @@ impl Fuzzer {
     ///
     /// Each dim derives an independent sub-RNG from `rng`, so sampling is
     /// deterministic and independent of dim ordering.
-    fn sample_schema_dims(
-        &self,
-        rng: &SeededRng,
-        schema: &OpSchema,
-    ) -> HashMap<String, usize> {
+    fn sample_schema_dims(&self, rng: &SeededRng, schema: &OpSchema) -> HashMap<String, usize> {
         let mut dims = HashMap::new();
         for d in &schema.dims {
             let value = if d.candidates.is_empty() {
@@ -384,7 +381,7 @@ impl Fuzzer {
 
     /// Generate random data for a tensor.
     fn generate_random_data(&self, rng: &mut SeededRng, numel: usize, dtype: DType) -> Vec<u8> {
-        generate_data_from_seed(rng, numel, dtype)
+        generate_data_from_seed(rng, numel, dtype, self.config.value_distribution)
     }
 
     /// Get the FuzzConfig.
@@ -428,13 +425,24 @@ fn regenerate_inputs_from_seed(
     let shape = repro.shape.clone();
     let dtype = repro.dtype;
     let strides = repro.strides.clone();
+    // Replay with the same value distribution the failing run used (Regular if
+    // the repro predates the field or carries no fuzz_config).
+    let dist = repro
+        .fuzz_config
+        .as_ref()
+        .map(|c| c.value_distribution)
+        .unwrap_or(ValueDistribution::Regular);
 
     let mut inputs = HashMap::new();
     let data_rng = rng.derive("data");
     for (i, name) in input_names.iter().enumerate() {
         let numel: usize = shape.iter().product();
-        let data =
-            generate_data_from_seed(&mut data_rng.derive(&format!("input_{}", i)), numel, dtype);
+        let data = generate_data_from_seed(
+            &mut data_rng.derive(&format!("input_{}", i)),
+            numel,
+            dtype,
+            dist,
+        );
         let input = TensorData {
             shape: shape.clone(),
             strides: strides.clone(),
@@ -446,13 +454,80 @@ fn regenerate_inputs_from_seed(
     inputs
 }
 
+/// Sample one float value under the chosen [`ValueDistribution`].
+///
+/// `Regular` consumes exactly one `gen_f64()` and reproduces the historical
+/// uniform[-10, 10] draw byte-for-byte. `Boundary`/`Adversarial` first draw a
+/// category selector, then either emit a special value or fall back to a
+/// regular draw — so the special values are interleaved with normal ones.
+fn sample_float(rng: &mut SeededRng, dist: ValueDistribution) -> f64 {
+    let regular = |rng: &mut SeededRng| (rng.gen_f64() * 2.0 - 1.0) * 10.0;
+    match dist {
+        ValueDistribution::Regular => regular(rng),
+        ValueDistribution::Boundary => match rng.gen_range(0..8) {
+            0 => 0.0,
+            1 => 1.0,
+            2 => -1.0,
+            3 => f64::MIN_POSITIVE, // smallest normal — exercises near-denormal paths
+            4 => -f64::MIN_POSITIVE,
+            5 => 1.0e30,
+            6 => -1.0e30,
+            _ => regular(rng),
+        },
+        ValueDistribution::Adversarial => match rng.gen_range(0..10) {
+            0 => f64::NAN,
+            1 => f64::INFINITY,
+            2 => f64::NEG_INFINITY,
+            3 => 0.0,
+            4 => f64::MIN_POSITIVE,
+            5 => 1.0e300,
+            6 => -1.0e300,
+            7 => 1.0e-300, // subnormal-adjacent — sign-cancellation / underflow
+            _ => regular(rng),
+        },
+    }
+}
+
+/// Convert an `f32` to IEEE-754 half-precision bits.
+///
+/// Finite values follow the original inline conversion exactly (so `Regular`
+/// generation stays byte-identical); `NaN`/`Inf` are now preserved rather than
+/// collapsing to infinity, which matters for adversarial inputs.
+fn f32_to_half_bits(val: f32) -> u16 {
+    let bits = val.to_bits();
+    let sign = (bits >> 16) & 0x8000;
+    if val.is_nan() {
+        return (sign | 0x7E00) as u16;
+    }
+    let exp = ((bits >> 23) & 0xFF) as i32 - 127 + 15;
+    let mant = (bits >> 13) & 0x3FF;
+    if exp <= 0 {
+        sign as u16
+    } else if exp >= 31 {
+        (sign | 0x7C00) as u16
+    } else {
+        (sign | ((exp as u32) << 10) | mant) as u16
+    }
+}
+
 /// Generate tensor data from a seed (helper for regeneration).
-fn generate_data_from_seed(rng: &mut SeededRng, numel: usize, dtype: DType) -> Vec<u8> {
+///
+/// `dist` selects the float value distribution; integer/bool generation is
+/// distribution-independent (shape fuzzing already covers their boundaries).
+// Index-based writes into typed byte windows (`data[i*W..i*W+W]`) are the
+// clearest form here and keep the rng-consumption order obvious.
+#[allow(clippy::needless_range_loop)]
+fn generate_data_from_seed(
+    rng: &mut SeededRng,
+    numel: usize,
+    dtype: DType,
+    dist: ValueDistribution,
+) -> Vec<u8> {
     match dtype {
         DType::Float32 => {
             let mut data = vec![0u8; numel * 4];
             for i in 0..numel {
-                let val = ((rng.gen_f64() * 2.0 - 1.0) * 10.0) as f32;
+                let val = sample_float(rng, dist) as f32;
                 let bytes = val.to_le_bytes();
                 data[i * 4..i * 4 + 4].copy_from_slice(&bytes);
             }
@@ -461,7 +536,7 @@ fn generate_data_from_seed(rng: &mut SeededRng, numel: usize, dtype: DType) -> V
         DType::Float64 => {
             let mut data = vec![0u8; numel * 8];
             for i in 0..numel {
-                let val: f64 = (rng.gen_f64() * 2.0 - 1.0) * 10.0;
+                let val: f64 = sample_float(rng, dist);
                 let bytes = val.to_le_bytes();
                 data[i * 8..i * 8 + 8].copy_from_slice(&bytes);
             }
@@ -470,18 +545,8 @@ fn generate_data_from_seed(rng: &mut SeededRng, numel: usize, dtype: DType) -> V
         DType::Float16 | DType::BFloat16 => {
             let mut data = vec![0u8; numel * 2];
             for i in 0..numel {
-                let val = ((rng.gen_f64() * 2.0 - 1.0) * 10.0) as f32;
-                let bits = val.to_bits();
-                let sign = (bits >> 16) & 0x8000;
-                let exp = ((bits >> 23) & 0xFF) as i32 - 127 + 15;
-                let mant = (bits >> 13) & 0x3FF;
-                let f16_bits = if exp <= 0 {
-                    sign as u16
-                } else if exp >= 31 {
-                    (sign | 0x7C00) as u16
-                } else {
-                    (sign | ((exp as u32) << 10) | mant) as u16
-                };
+                let val = sample_float(rng, dist) as f32;
+                let f16_bits = f32_to_half_bits(val);
                 let bytes = f16_bits.to_le_bytes();
                 data[i * 2..i * 2 + 2].copy_from_slice(&bytes);
             }
@@ -616,6 +681,77 @@ mod tests {
         );
     }
 
+    fn decode_f32(data: &[u8]) -> Vec<f32> {
+        data.chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    }
+
+    #[test]
+    fn test_regular_distribution_byte_identical() {
+        // Regular mode must reproduce the historical uniform[-10,10] draw
+        // exactly (one gen_f64 per element), so old seeds replay byte-for-byte.
+        let mut rng = SeededRng::new(98765);
+        let got = generate_data_from_seed(&mut rng, 64, DType::Float32, ValueDistribution::Regular);
+
+        let mut ref_rng = SeededRng::new(98765);
+        let mut expected = vec![0u8; 64 * 4];
+        for i in 0..64 {
+            let val = ((ref_rng.gen_f64() * 2.0 - 1.0) * 10.0) as f32;
+            expected[i * 4..i * 4 + 4].copy_from_slice(&val.to_le_bytes());
+        }
+        assert_eq!(
+            got, expected,
+            "Regular mode diverged from historical formula"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_injects_special_values() {
+        let mut rng = SeededRng::new(13);
+        let data = generate_data_from_seed(
+            &mut rng,
+            512,
+            DType::Float32,
+            ValueDistribution::Adversarial,
+        );
+        let vals = decode_f32(&data);
+        assert!(vals.iter().any(|v| v.is_nan()), "expected at least one NaN");
+        assert!(
+            vals.iter().any(|v| v.is_infinite()),
+            "expected at least one Inf"
+        );
+        assert!(
+            vals.iter().any(|v| v.is_finite()),
+            "adversarial should still mix in finite values"
+        );
+    }
+
+    #[test]
+    fn test_boundary_injects_edge_values() {
+        let mut rng = SeededRng::new(7);
+        let data =
+            generate_data_from_seed(&mut rng, 512, DType::Float32, ValueDistribution::Boundary);
+        let vals = decode_f32(&data);
+        assert!(vals.iter().all(|v| v.is_finite()), "boundary stays finite");
+        assert!(vals.contains(&0.0), "expected exact zeros");
+        assert!(vals.contains(&1.0), "expected exact ones");
+    }
+
+    #[test]
+    fn test_adversarial_half_preserves_nan() {
+        // The improved f16 conversion must keep NaN as NaN (0x7E00 pattern),
+        // not collapse it to infinity.
+        assert_eq!(f32_to_half_bits(f32::NAN) & 0x7C00, 0x7C00);
+        assert_ne!(
+            f32_to_half_bits(f32::NAN) & 0x03FF,
+            0,
+            "NaN must keep mantissa"
+        );
+        assert_eq!(f32_to_half_bits(f32::INFINITY), 0x7C00);
+        assert_eq!(f32_to_half_bits(f32::NEG_INFINITY), 0xFC00);
+    }
+
     #[test]
     fn test_schema_matmul_shares_k() {
         let mut config = FuzzConfig::with_seed(2024);
@@ -633,8 +769,14 @@ mod tests {
             // Representative (output) shape is M x N.
             assert_eq!(tc.shape, vec![a[0], b[1]]);
             // Data length matches each input's own element count.
-            assert_eq!(tc.inputs["a"].data.len(), a.iter().product::<usize>() * tc.dtype.size_bytes());
-            assert_eq!(tc.inputs["b"].data.len(), b.iter().product::<usize>() * tc.dtype.size_bytes());
+            assert_eq!(
+                tc.inputs["a"].data.len(),
+                a.iter().product::<usize>() * tc.dtype.size_bytes()
+            );
+            assert_eq!(
+                tc.inputs["b"].data.len(),
+                b.iter().product::<usize>() * tc.dtype.size_bytes()
+            );
         }
     }
 
